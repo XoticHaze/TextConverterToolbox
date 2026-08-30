@@ -1,0 +1,16 @@
+name: runner-admission-public-canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runner-admission-public-canary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo public-ubuntu-runner-started
