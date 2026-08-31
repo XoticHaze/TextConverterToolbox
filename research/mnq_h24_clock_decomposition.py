@@ -23,7 +23,11 @@ COST = 0.0002
 
 
 def utc_slot(ts: pd.Series) -> np.ndarray:
-    return (ts.astype("int64").to_numpy() // BAR_NS).astype(np.int64)
+    # Force nanosecond resolution before integer conversion. Pandas may preserve
+    # source datetime64[us] resolution; dividing microseconds by BAR_NS silently
+    # destroys the absolute 12-minute phase contract.
+    ns = pd.to_datetime(ts, utc=True).to_numpy(dtype="datetime64[ns]").astype(np.int64)
+    return (ns // BAR_NS).astype(np.int64)
 
 
 def signed_net(pred: np.ndarray, fwd: np.ndarray) -> np.ndarray:
