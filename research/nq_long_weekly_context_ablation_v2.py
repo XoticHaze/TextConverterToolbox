@@ -19,6 +19,20 @@ TEST_END = pd.Timestamp("2025-10-06", tz="UTC")
 ARMS = ("baseline20", "long_weekly_26y")
 
 
+def normalize_long_weekly_anchor(weekly: pd.DataFrame) -> pd.DataFrame:
+    """Map Sunday futures week-open labels into the following Monday week."""
+    w = weekly.copy()
+    ts = pd.to_datetime(w["timestamp"], utc=True, errors="raise")
+    sunday = ts.dt.weekday.eq(6)
+    w.loc[sunday, "timestamp"] = ts.loc[sunday] + pd.Timedelta(days=1)
+    semantic_week = week_start_utc(w["timestamp"])
+    duplicates = semantic_week.duplicated(keep=False)
+    if duplicates.any():
+        bad = semantic_week.loc[duplicates].dt.strftime("%Y-%m-%d").unique().tolist()
+        raise RuntimeError(f"long weekly semantic weeks not unique after Sunday normalization: {bad[:8]}")
+    return w
+
+
 def summarize(rows: list[dict], arm: str) -> dict:
     vals = [r["arms"][arm]["nonoverlap_phase_audit"]["median_phase_net_after_2bp"] for r in rows]
     vals = np.asarray([v for v in vals if v is not None], dtype=float)
@@ -47,7 +61,9 @@ def main() -> int:
     intraday = load_normalized(args.nq_normalized)
     b = bars12(intraday)
     b["week_start"] = week_start_utc(b["timestamp"])
-    b = b.merge(long_context_table(load_long_weekly(args.nq_weekly)), on="week_start", how="left", validate="many_to_one")
+    weekly = normalize_long_weekly_anchor(load_long_weekly(args.nq_weekly))
+    long_ctx = long_context_table(weekly)
+    b = b.merge(long_ctx, on="week_start", how="left", validate="many_to_one")
     if (b["long_context_source_week"].notna() & ~(b["long_context_source_week"] < b["week_start"])).any():
         raise RuntimeError("long weekly context leak")
 
@@ -107,7 +123,7 @@ def main() -> int:
         "config_key": args.config_key,
         "horizon": horizon,
         "vol_multiplier": vol_mult,
-        "protocol": "baseline20 versus 1999+ NQ slow weekly state on one identical complete-case panel; weekly OHLCV withheld until following week; horizon purge before every OOS week; all non-overlapping UTC phase streams reported; no short-context warmup in row admission",
+        "protocol": "baseline20 versus 1999+ NQ slow weekly state on one identical complete-case panel; Sunday futures week-open labels normalized into the following Monday semantic week; weekly OHLCV withheld until following week; horizon purge before every OOS week; all non-overlapping UTC phase streams reported; no short-context warmup in row admission",
         "feature_sets": {"baseline20": list(BASE_FEATURES), "long_weekly_26y": features},
         "weekly_windows": rows,
         "summary": summary,
