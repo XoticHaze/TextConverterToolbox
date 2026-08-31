@@ -52,7 +52,6 @@ def _predict_probability(row: np.ndarray, fit: tuple[np.ndarray, np.ndarray, np.
     coef, mean, scale = fit
     z = (row - mean) / scale
     linear = float(np.r_[1.0, z] @ coef)
-    # Ridge probability is deliberately a simple interpretable linear baseline.
     return float(np.clip(linear, 0.0, 1.0))
 
 
@@ -67,20 +66,12 @@ def chronological_long_hold_exit_panel(
 ) -> pd.DataFrame:
     """Build paired OOS HOLD/EXIT actions on identical hypothetical long paths.
 
-    The learned linear challenger is refit for every test observation using only
-    earlier rows whose forward target horizon has already completed by the
-    current decision timestamp. This positional purge prevents unresolved future
-    outcomes from entering training.
-
-    Baselines are task-specific and causal at the decision bar:
-    * ``fixed_horizon`` always HOLDs to the target horizon;
-    * ``trailing`` HOLDs only while decision close remains above the running
-      decision-window close maximum minus a fixed point trail;
-    * ``atr_trailing`` uses entry-time ATR instead of a fixed trail.
-
-    All policies are evaluated against the same ``pnl_if_exit_points`` and
-    ``pnl_if_hold_points`` target columns. Hard deterministic risk exits remain
-    outside this research panel and retain downstream veto authority.
+    Each target row identifies a hypothetical entry at row ``i``. The action is
+    made at ``i + decision_bars``, so learned features and ATR are sampled at that
+    decision row for both historical training examples and the current OOS test.
+    Labels remain attached to their entry rows because their forward horizon is
+    defined from entry. Training is purge-aware: a historical entry row ``j`` is
+    eligible only after ``j + horizon_bars`` has resolved by the current decision.
     """
     if len(frame) != len(targets) or not frame.index.equals(targets.index):
         raise ValueError("frame and targets must have identical indexed rows")
@@ -112,24 +103,28 @@ def chronological_long_hold_exit_panel(
         if horizon_i >= n or decision_i >= n:
             continue
 
-        # A training row j is eligible only if j's outcome is known by this
-        # test row's decision time: j + horizon <= i + decision.
         last_train = decision_i - target_spec.horizon_bars
         eligible = np.arange(max(0, last_train + 1), dtype=int)
         eligible = eligible[~labels.iloc[eligible].isna().to_numpy()]
         if len(eligible) < oos_spec.min_train_rows:
             continue
 
+        # A historical target row j describes a decision at j + decision_bars.
+        # Pair its label with the market state actually observable at that decision,
+        # not with the earlier entry state.
+        train_decisions = eligible + target_spec.decision_bars
+        if (train_decisions >= n).any():
+            raise AssertionError("eligible training decision exceeds frame")
         y_train = labels.iloc[eligible].astype(float).to_numpy()
-        fit = _fit_ridge_probability(x[eligible], y_train, oos_spec.ridge)
-        probability = _predict_probability(x[i], fit)
+        fit = _fit_ridge_probability(x[train_decisions], y_train, oos_spec.ridge)
+        probability = _predict_probability(x[decision_i], fit)
         learned_hold = probability >= oos_spec.probability_threshold
 
         decision_window = close[i : decision_i + 1]
         running_max = float(np.max(decision_window))
         decision_close = float(close[decision_i])
         trailing_hold = decision_close > running_max - oos_spec.trailing_points
-        atr_trailing_hold = decision_close > running_max - oos_spec.atr_multiple * float(atr[i])
+        atr_trailing_hold = decision_close > running_max - oos_spec.atr_multiple * float(atr[decision_i])
 
         exit_pnl = float(targets["pnl_if_exit_points"].iloc[i])
         hold_pnl = float(targets["pnl_if_hold_points"].iloc[i])
@@ -141,6 +136,7 @@ def chronological_long_hold_exit_panel(
             "row_index": i,
             "train_rows": int(len(eligible)),
             "train_last_row": int(eligible[-1]),
+            "train_last_decision_row": int(train_decisions[-1]),
             "decision_row": int(decision_i),
             "target_resolution_row": int(horizon_i),
             "realized_hold_label": int(labels.iloc[i]),
@@ -159,7 +155,7 @@ def chronological_long_hold_exit_panel(
             "research_only": True,
         }
         if "timestamp" in frame:
-            row["timestamp"] = frame["timestamp"].iloc[i]
+            row["timestamp"] = frame["timestamp"].iloc[decision_i]
         out_rows.append(row)
 
     return pd.DataFrame(out_rows)
@@ -181,13 +177,11 @@ def summarize_hold_exit_panel(panel: pd.DataFrame) -> pd.DataFrame:
         if len(values) == 0:
             rows.append({"policy": policy, "rows": 0, "mean_points": np.nan, "median_points": np.nan, "positive_fraction": np.nan})
             continue
-        rows.append(
-            {
-                "policy": policy,
-                "rows": int(len(values)),
-                "mean_points": float(np.mean(values)),
-                "median_points": float(np.median(values)),
-                "positive_fraction": float(np.mean(values > 0)),
-            }
-        )
+        rows.append({
+            "policy": policy,
+            "rows": int(len(values)),
+            "mean_points": float(np.mean(values)),
+            "median_points": float(np.median(values)),
+            "positive_fraction": float(np.mean(values > 0)),
+        })
     return pd.DataFrame(rows)
