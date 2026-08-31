@@ -41,7 +41,6 @@ def build_events(work: pd.DataFrame, horizon: int, mult: float, phase: int, feat
     high = work["high"].to_numpy(float)
     low = work["low"].to_numpy(float)
     rv = work["rv_120"].to_numpy(float)
-
     for i in range(len(work) - horizon):
         if slots[i] % horizon != phase:
             continue
@@ -55,25 +54,16 @@ def build_events(work: pd.DataFrame, horizon: int, mult: float, phase: int, feat
         up_at = first_true(hi >= upper)
         down_at = first_true(lo <= lower)
         ambiguous = up_at is not None and down_at is not None and up_at == down_at
-
         if ambiguous:
-            label = 0
-            long_ret = -threshold
-            short_ret = -threshold
+            label, long_ret, short_ret = 0, -threshold, -threshold
         elif up_at is not None and (down_at is None or up_at < down_at):
-            label = 1
-            long_ret = threshold
-            short_ret = -threshold
+            label, long_ret, short_ret = 1, threshold, -threshold
         elif down_at is not None and (up_at is None or down_at < up_at):
-            label = -1
-            long_ret = -threshold
-            short_ret = threshold
+            label, long_ret, short_ret = -1, -threshold, threshold
         else:
             label = 0
             fwd = close[i + horizon] / close[i] - 1.0
-            long_ret = float(fwd)
-            short_ret = float(-fwd)
-
+            long_ret, short_ret = float(fwd), float(-fwd)
         row = {
             "timestamp": work["timestamp"].iloc[i],
             "event_end_timestamp": work["timestamp"].iloc[i + horizon],
@@ -121,24 +111,26 @@ def summarize(returns: list[float], q_net: list[float]) -> dict:
         return {"signals": 0}
     std = float(np.std(r, ddof=1)) if len(r) > 1 else 0.0
     t_stat = float(np.mean(r) / (std / math.sqrt(len(r)))) if std > 0 else None
-    total = float(np.sum(r))
     quarter_abs = np.abs(q)
-    concentration = float(np.max(quarter_abs) / np.sum(quarter_abs)) if len(q) and np.sum(quarter_abs) > 0 else None
     return {
         "signals": int(len(r)),
         "mean_net_after_2bp": float(np.mean(r)),
         "median_net_after_2bp": float(np.median(r)),
         "positive_rate": float(np.mean(r > 0)),
         "t_stat_zero_mean": t_stat,
-        "cumulative_net_return_sum": total,
+        "cumulative_net_return_sum": float(np.sum(r)),
         "max_cumulative_drawdown": max_drawdown(r),
         "quarters": int(len(q)),
         "quarters_positive": int(np.sum(q > 0)),
         "median_quarter_net_after_2bp": float(np.median(q)) if len(q) else None,
         "min_quarter_net_after_2bp": float(np.min(q)) if len(q) else None,
         "max_quarter_net_after_2bp": float(np.max(q)) if len(q) else None,
-        "largest_abs_quarter_share": concentration,
+        "largest_abs_quarter_share": float(np.max(quarter_abs) / np.sum(quarter_abs)) if len(q) and np.sum(quarter_abs) > 0 else None,
     }
+
+
+def counts(y: np.ndarray) -> dict[str, int]:
+    return {str(c): int(np.sum(y == c)) for c in (-1, 0, 1)}
 
 
 def main() -> int:
@@ -147,7 +139,6 @@ def main() -> int:
     ap.add_argument("--deep-root", type=Path, required=True)
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
-
     horizon, mult = CONFIGS[args.config_key]
     raw = load_deep(args.deep_root)
     stitched = stitch_deep(raw, deep_roll_schedule(raw))
@@ -166,24 +157,30 @@ def main() -> int:
             events = build_events(work, horizon, mult, phase, features)
             if len(events) < 1000:
                 raise RuntimeError(f"{args.config_key}/{feature_name}/phase{phase}: too few events {len(events)}")
-            all_returns: list[float] = []
-            quarter_net: list[float] = []
-            quarter_rows = []
-            all_y: list[int] = []
-            all_pred: list[int] = []
-
+            all_returns, quarter_net, quarter_rows, all_y, all_pred = [], [], [], [], []
+            admission = {"outer_quarters": 0, "admitted": 0, "train_lt_500": 0, "test_lt_30": 0, "train_single_class": 0}
+            rejected = []
             for i in range(len(outer) - 1):
                 start, end = outer[i], outer[i + 1]
+                period = f"{start.year}Q{((start.month - 1)//3)+1}"
+                admission["outer_quarters"] += 1
                 train = events[(events["timestamp"] < start) & (events["event_end_timestamp"] < start)]
                 test = events[(events["timestamp"] >= start) & (events["timestamp"] < end) & (events["event_end_timestamp"] < end)]
-                if len(train) < 500 or len(test) < 30:
+                if len(train) < 500:
+                    admission["train_lt_500"] += 1
+                    rejected.append({"period": period, "reason": "train_lt_500", "train_events": int(len(train)), "test_events": int(len(test))})
+                    continue
+                if len(test) < 30:
+                    admission["test_lt_30"] += 1
+                    rejected.append({"period": period, "reason": "test_lt_30", "train_events": int(len(train)), "test_events": int(len(test))})
                     continue
                 y_train = train["target"].astype(int).to_numpy()
                 y_test = test["target"].astype(int).to_numpy()
-                # Training needs at least two classes. A future quarter containing one
-                # realized class is valid OOS evidence and must not be discarded.
                 if len(np.unique(y_train)) < 2:
+                    admission["train_single_class"] += 1
+                    rejected.append({"period": period, "reason": "train_single_class", "train_events": int(len(train)), "test_events": int(len(test)), "train_counts": counts(y_train), "test_counts": counts(y_test)})
                     continue
+                admission["admitted"] += 1
                 fitted = model().fit(train[features].to_numpy(float), y_train)
                 pred = fitted.predict(test[features].to_numpy(float)).astype(int)
                 r = realized_returns(test, pred)
@@ -194,28 +191,29 @@ def main() -> int:
                 all_y.extend(y_test.tolist())
                 all_pred.extend(pred.tolist())
                 quarter_rows.append({
-                    "period": f"{start.year}Q{((start.month - 1)//3)+1}",
+                    "period": period,
                     "train_events": int(len(train)),
                     "test_events": int(len(test)),
                     "directional_signals": int(len(r)),
                     "classification": classification(y_test, pred),
                     "mean_net_after_2bp": qmean,
-                    "target_counts": {str(c): int(np.sum(y_test == c)) for c in (-1, 0, 1)},
+                    "target_counts": counts(y_test),
                     "observed_train_classes": sorted(int(c) for c in np.unique(y_train)),
                     "observed_test_classes": sorted(int(c) for c in np.unique(y_test)),
                     "ambiguous_events": int(test["ambiguous_same_bar"].sum()),
                 })
-
             if len(quarter_rows) < 8:
-                raise RuntimeError(f"{args.config_key}/{feature_name}/phase{phase}: insufficient outer quarters {len(quarter_rows)}")
+                diagnostic = {"admission": admission, "rejected": rejected, "events_total": int(len(events)), "event_first": events["timestamp"].iloc[0].isoformat(), "event_last": events["timestamp"].iloc[-1].isoformat(), "target_counts_all": counts(events["target"].to_numpy(int))}
+                print("TRIPLE_BARRIER_ADMISSION_DIAGNOSTIC=" + json.dumps(diagnostic, sort_keys=True))
+                raise RuntimeError(f"{args.config_key}/{feature_name}/phase{phase}: insufficient outer quarters {len(quarter_rows)}; admission={admission}")
             phase_nodes[str(phase)] = {
                 "events_total": int(len(events)),
+                "admission": admission,
                 "quarter_rows": quarter_rows,
                 "aggregate_classification": classification(np.asarray(all_y, dtype=int), np.asarray(all_pred, dtype=int)),
                 "aggregate_economic": summarize(all_returns, quarter_net),
             }
             print(args.config_key, feature_name, "PHASE", phase, phase_nodes[str(phase)]["aggregate_economic"])
-
         result_features[feature_name] = {"phases": phase_nodes}
 
     result = {
@@ -226,7 +224,7 @@ def main() -> int:
         "config_key": args.config_key,
         "horizon": horizon,
         "barrier_multiplier": mult,
-        "protocol": "four predeclared absolute-UTC phase streams; event starts separated by full horizon; phase-specific models train only on prior completed non-overlapping events; symmetric causal rv_120 barriers with 2bp floor; binary or ternary training targets are valid; single-class future quarters are retained as OOS evidence; first barrier wins; same-bar dual hit is fail-closed as directional loss; expiry exits at horizon close; current quarter never used for model selection",
+        "protocol": "four predeclared absolute-UTC phase streams; event starts separated by full horizon; phase-specific models train only on prior completed non-overlapping events; symmetric causal rv_120 barriers with 2bp floor; binary or ternary training targets are valid; single-class future quarters are retained as OOS evidence; first barrier wins; same-bar dual hit is fail-closed as directional loss; expiry exits at horizon close; current quarter never used for model selection; admission reasons are explicit",
         "execution_cost_per_event": EXECUTION_COST,
         "excluded_forward_aligned_features": ["chikou_span"],
         "feature_sets": result_features,
