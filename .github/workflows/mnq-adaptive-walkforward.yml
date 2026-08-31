@@ -1,0 +1,106 @@
+name: mnq-nonoverlap-phase-audit
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        key: [h6_vol05, h6_vol10, h12_vol05, h12_vol10, h24_vol05, h24_vol10]
+    steps:
+      - name: Checkout research harness
+        uses: actions/checkout@v4
+      - name: Checkout exact deep MNQ source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/mbytes21/MNQ_DATA.git deep
+          git -C deep checkout --detach fc5508e2c152938d6d9eb70a36b888ae26107176
+          test "$(git -C deep rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+          test -f 'deep/plaintext_csv/MNQ 03-20/20191209.Last.csv'
+      - name: Install bounded dependencies
+        shell: bash
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+      - name: Execute fixed-phase non-overlap audit
+        shell: bash
+        env:
+          CONFIG_KEY: ${{ matrix.key }}
+        run: |
+          set -euo pipefail
+          python -m research.mnq_nonoverlap_phase_audit \
+            --config-key "$CONFIG_KEY" \
+            --deep-root deep/plaintext_csv \
+            --output "result/${CONFIG_KEY}.json"
+      - name: Upload config metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnq-nonoverlap-${{ matrix.key }}
+          path: result/${{ matrix.key }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+  aggregate:
+    needs: config
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download config metrics
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mnq-nonoverlap-*
+          path: parts
+          merge-multiple: true
+      - name: Merge receipts deterministically
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          files=sorted(Path('parts').glob('*.json'))
+          if len(files) != 6:
+              raise SystemExit(f'expected 6 config receipts, got {len(files)}')
+          configs={}
+          source=None
+          protocol=None
+          for p in files:
+              d=json.loads(p.read_text())
+              key=d['config_key']
+              if key in configs:
+                  raise SystemExit(f'duplicate config {key}')
+              if source is None:
+                  source=d['source']; protocol=d['protocol']
+              elif d['source'] != source or d['protocol'] != protocol:
+                  raise SystemExit(f'{p}: source/protocol drift')
+              configs[key]=d
+          out={
+              'schema':'foundry.mnq_nonoverlap_phase_audit_aggregate.v1',
+              'research_only':True,
+              'promotion_authority':False,
+              'source':source,
+              'protocol':protocol,
+              'configs':configs,
+          }
+          material=json.dumps(out,sort_keys=True,separators=(',',':')).encode()
+          out['receipt_sha256']=hashlib.sha256(material).hexdigest()
+          Path('result').mkdir(exist_ok=True)
+          Path('result/mnq-nonoverlap-phase-audit-aggregate.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print('MNQ_NONOVERLAP_PHASE_AUDIT_AGGREGATE=PASS')
+          print('RECEIPT_SHA256='+out['receipt_sha256'])
+          PY
+      - name: Upload aggregate metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnq-nonoverlap-phase-audit-results
+          path: result/mnq-nonoverlap-phase-audit-aggregate.json
+          if-no-files-found: error
+          retention-days: 14
