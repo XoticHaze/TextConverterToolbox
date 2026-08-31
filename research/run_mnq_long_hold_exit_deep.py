@@ -24,6 +24,7 @@ def main() -> int:
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--horizon", type=int, default=24)
     ap.add_argument("--decision", type=int, default=6)
+    ap.add_argument("--refit-interval", type=int, default=250)
     args = ap.parse_args()
 
     raw = load_deep(args.deep_root)
@@ -32,7 +33,6 @@ def main() -> int:
     frame = _add_features(bars)
     features = list(dict.fromkeys(BASE_FEATURES + EXPANDED_FEATURES + REGIME_FEATURES))
 
-    # ATR in price points, causal at each decision timestamp.
     prev_close = frame["close"].shift(1)
     tr = np.maximum.reduce([
         (frame["high"] - frame["low"]).to_numpy(dtype=float),
@@ -54,7 +54,11 @@ def main() -> int:
             targets,
             features,
             target_spec,
-            HoldExitOOSSpec(min_train_rows=5000, probability_threshold=threshold),
+            HoldExitOOSSpec(
+                min_train_rows=5000,
+                probability_threshold=threshold,
+                refit_interval_rows=args.refit_interval,
+            ),
         )
         summary = summarize_hold_exit_panel(panel)
         learned = panel["learned_realized_points"].to_numpy(dtype=float)
@@ -72,11 +76,12 @@ def main() -> int:
         })
 
     out = {
-        "schema": "foundry.mnq_long_hold_exit_deep_oos.v1",
+        "schema": "foundry.mnq_long_hold_exit_deep_oos.v2",
         "research_only": True,
         "runtime_exit_authority": False,
         "horizon_bars": args.horizon,
         "decision_bars": args.decision,
+        "refit_interval_rows": args.refit_interval,
         "feature_count": len(features),
         "bars": len(frame),
         "first_timestamp": frame["timestamp"].iloc[0].isoformat(),
@@ -87,6 +92,7 @@ def main() -> int:
     args.output.write_text(json.dumps(out, indent=2, sort_keys=True) + "\n")
     print("MNQ_LONG_HOLD_EXIT_DEEP_OOS=PASS")
     print(f"CONFIGS={len(results)}")
+    print(f"REFIT_INTERVAL_ROWS={args.refit_interval}")
     return 0
 
 
