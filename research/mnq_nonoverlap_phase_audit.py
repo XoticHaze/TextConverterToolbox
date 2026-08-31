@@ -20,7 +20,8 @@ CONFIGS = {
     "h24_vol05": (24, 0.5),
     "h24_vol10": (24, 1.0),
 }
-BAR_NS = 12 * 60 * 1_000_000_000
+BAR = pd.Timedelta(minutes=12)
+EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
 
 
 def phases(horizon: int) -> list[int]:
@@ -28,8 +29,12 @@ def phases(horizon: int) -> list[int]:
 
 
 def utc_slot(ts: pd.Series) -> np.ndarray:
-    # Absolute UTC 12-minute clock index; independent of dataset start/missing rows.
-    return (ts.astype("int64").to_numpy() // BAR_NS).astype(np.int64)
+    """Absolute UTC 12-minute clock index, independent of datetime storage unit."""
+    parsed = pd.to_datetime(ts, utc=True, errors="raise")
+    slots = ((parsed - EPOCH) // BAR).to_numpy(dtype=np.int64)
+    if len(slots) != len(parsed):
+        raise RuntimeError("UTC slot cardinality mismatch")
+    return slots
 
 
 def phase_summary(phase_rows: dict[str, dict]) -> dict:
@@ -139,7 +144,7 @@ def main() -> int:
         }
 
     result = {
-        "schema": "foundry.mnq_nonoverlap_phase_audit.v1",
+        "schema": "foundry.mnq_nonoverlap_phase_audit.v2",
         "research_only": True,
         "promotion_authority": False,
         "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
@@ -148,6 +153,7 @@ def main() -> int:
         "vol_multiplier": mult,
         "target": "down/no-trade/up using max(2bp, k*causal_rv120*sqrt(horizon))",
         "protocol": "same expanding past-only fitted models as opportunity matrix; economic/classification audit on four predeclared absolute-UTC phase streams separated by full horizon; phases fixed before results; no best-phase selection",
+        "clock_index_contract": "UTC slot is computed by timezone-aware Timedelta floor division from Unix epoch; independent of pandas datetime storage resolution",
         "phase_offsets": phase_ids,
         "training_note": "training labels remain dense/overlapping; this audit isolates whether evaluation economics are an overlapping-outcome artifact before event-only retraining",
         "excluded_forward_aligned_features": ["chikou_span"],
