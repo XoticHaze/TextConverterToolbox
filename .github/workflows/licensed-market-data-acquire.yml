@@ -1,0 +1,83 @@
+name: licensed-market-data-acquire
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acquire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: es
+            dataset: choweric/cme-es
+            license: CC BY-SA 4.0
+          - id: nq
+            dataset: choweric/cme-nasdaq
+            license: CC BY-SA 4.0
+          - id: ng
+            dataset: choweric/nymex-ng
+            license: CC BY-SA 4.0
+          - id: zs
+            dataset: choweric/cbot-soybeans
+            license: CC BY-SA 4.0
+          - id: 6e
+            dataset: choweric/cme-euro
+            license: CC BY-SA 4.0
+          - id: mnq
+            dataset: brandenmorris/mnq-1m-q4-2022-q4-2025-ts-ohlcv-sym
+            license: CC BY 4.0
+    steps:
+      - name: Acquire licensed dataset
+        shell: bash
+        env:
+          DATASET: ${{ matrix.dataset }}
+          DATASET_ID: ${{ matrix.id }}
+          EXPECTED_LICENSE: ${{ matrix.license }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          safe_name="${DATASET//\//-}"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "https://www.kaggle.com/api/v1/datasets/view/${DATASET}" \
+            -o artifact/metadata.json
+          python - <<'PY'
+          import json, os
+          d=json.load(open('artifact/metadata.json', encoding='utf-8'))
+          text=json.dumps(d, sort_keys=True)
+          expected=os.environ['EXPECTED_LICENSE']
+          if expected not in text:
+              raise SystemExit(f'expected license metadata not observed: {expected}')
+          version=d.get('currentVersionNumber') or d.get('versionNumber') or 'unknown'
+          print('KAGGLE_METADATA_LICENSE=PASS')
+          print('KAGGLE_DATASET=' + os.environ['DATASET'])
+          print('KAGGLE_DATASET_VERSION=' + str(version))
+          if os.environ['DATASET_ID'] == 'mnq' and str(version) != '1':
+              raise SystemExit(f'MNQ version drift: expected 1, observed {version}')
+          PY
+          curl --fail --location --retry 3 --retry-delay 2 \
+            "https://www.kaggle.com/api/v1/datasets/download/${DATASET}" \
+            -o "artifact/${safe_name}.zip"
+          test -s "artifact/${safe_name}.zip"
+          unzip -t "artifact/${safe_name}.zip" >/dev/null
+          sha256sum "artifact/${safe_name}.zip" | tee artifact/SHA256SUMS
+          wc -c "artifact/${safe_name}.zip" | tee artifact/BYTES
+          printf '%s\n' "${DATASET}" > artifact/DATASET
+          printf '%s\n' "${EXPECTED_LICENSE}" > artifact/LICENSE
+          echo 'LICENSED_MARKET_DATA_ACQUIRE=PASS'
+
+      - name: Upload acquisition artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: licensed-market-data-${{ matrix.id }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7
