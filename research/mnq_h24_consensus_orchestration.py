@@ -19,6 +19,13 @@ VOL_MULT = 0.5
 TEST_START = pd.Timestamp("2023-07-01", tz="UTC")
 TEST_END = pd.Timestamp("2026-01-01", tz="UTC")
 MIN_COMPLETE_WEEKS = 80
+# Selective consensus/veto policies can legitimately have too few signals for a
+# phase-level weekly economic statistic in some otherwise-valid OOS weeks. The
+# experiment still requires >=80 unique OOS weeks overall; this separate floor
+# only governs whether a selective policy has enough valid weekly observations
+# to report distribution/tail statistics. It does not change predictions or
+# select an OOS policy.
+MIN_VALID_POLICY_WEEKS = 60
 POINT_COSTS = (0.5, 1.0, 2.0, 4.0)
 POLICIES = (
     "logistic",
@@ -43,15 +50,17 @@ def build_policy(name: str, logistic: np.ndarray, extra: np.ndarray) -> np.ndarr
     raise RuntimeError(name)
 
 
-def tail_summary(vals: np.ndarray) -> dict:
+def tail_summary(vals: np.ndarray, total_oos_weeks: int) -> dict:
     vals = np.asarray(vals, dtype=float)
     vals = vals[np.isfinite(vals)]
-    if len(vals) < MIN_COMPLETE_WEEKS:
-        raise RuntimeError(f"insufficient tail rows {len(vals)}")
+    if len(vals) < MIN_VALID_POLICY_WEEKS:
+        raise RuntimeError(f"insufficient valid policy tail rows {len(vals)}")
     k = max(1, int(np.ceil(0.10 * len(vals))))
     worst = np.sort(vals)[:k]
     return {
         "weeks": int(len(vals)),
+        "total_oos_weeks": int(total_oos_weeks),
+        "valid_week_fraction": float(len(vals) / total_oos_weeks),
         "positive_weeks": int(np.sum(vals > 0)),
         "positive_week_fraction": float(np.mean(vals > 0)),
         "median_weekly_points": float(np.median(vals)),
@@ -69,7 +78,7 @@ def summarize(rows: list[dict], policy: str) -> dict:
         key = str(cost).replace(".", "p")
         field = f"median_phase_net_points_after_{key}pt"
         vals = [r["policies"][policy]["phase_audit"].get(field) for r in rows]
-        out[f"after_{key}pt"] = tail_summary(np.asarray(vals, dtype=float))
+        out[f"after_{key}pt"] = tail_summary(np.asarray(vals, dtype=float), len(rows))
     cov = np.asarray([r["policies"][policy]["coverage"] for r in rows], dtype=float)
     out["coverage"] = {
         "median": float(np.median(cov)),
@@ -92,10 +101,12 @@ def paired(rows: list[dict], challenger: str, reference: str = "logistic") -> di
             if a is not None and b is not None:
                 diffs.append(float(a) - float(b))
         arr = np.asarray(diffs, dtype=float)
-        if len(arr) < MIN_COMPLETE_WEEKS:
-            raise RuntimeError(f"insufficient paired rows {challenger}/{key}: {len(arr)}")
+        if len(arr) < MIN_VALID_POLICY_WEEKS:
+            raise RuntimeError(f"insufficient paired valid rows {challenger}/{key}: {len(arr)}")
         out[f"after_{key}pt"] = {
             "weeks": int(len(arr)),
+            "total_oos_weeks": int(len(rows)),
+            "valid_week_fraction": float(len(arr) / len(rows)),
             "median_delta_points": float(np.median(arr)),
             "mean_delta_points": float(np.mean(arr)),
             "win_fraction": float(np.mean(arr > 0)),
@@ -211,6 +222,11 @@ def main() -> int:
             "extra_trees": "challenger model unchanged",
             "consensus_only": "trade only when both models predict the same nonzero direction; otherwise abstain",
             "logistic_opposite_veto": "use logistic prediction except abstain when ExtraTrees predicts the opposite nonzero direction; ExtraTrees neutral does not veto",
+        },
+        "reporting_contract": {
+            "minimum_total_oos_weeks": MIN_COMPLETE_WEEKS,
+            "minimum_valid_selective_policy_weeks": MIN_VALID_POLICY_WEEKS,
+            "reason": "selective policies can lack enough phase-level signals in some otherwise valid OOS weeks; missing weekly economics are reported through valid_week_fraction and never imputed",
         },
         "protocol": "policies predeclared from completed model-family evidence; quarterly past-only refits with H24 purge; identical MNQ OOS rows; all trade weeks and all non-overlapping UTC phase streams reported; no OOS threshold fitting, policy selection, or state gate",
         "fit_receipts": fits,
