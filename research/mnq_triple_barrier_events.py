@@ -180,9 +180,9 @@ def main() -> int:
                     continue
                 y_train = train["target"].astype(int).to_numpy()
                 y_test = test["target"].astype(int).to_numpy()
-                # Tight barriers can legitimately collapse to a binary up/down target.
-                # Only a single observed training class is unusable.
-                if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
+                # Training needs at least two classes. A future quarter containing one
+                # realized class is valid OOS evidence and must not be discarded.
+                if len(np.unique(y_train)) < 2:
                     continue
                 fitted = model().fit(train[features].to_numpy(float), y_train)
                 pred = fitted.predict(test[features].to_numpy(float)).astype(int)
@@ -202,6 +202,7 @@ def main() -> int:
                     "mean_net_after_2bp": qmean,
                     "target_counts": {str(c): int(np.sum(y_test == c)) for c in (-1, 0, 1)},
                     "observed_train_classes": sorted(int(c) for c in np.unique(y_train)),
+                    "observed_test_classes": sorted(int(c) for c in np.unique(y_test)),
                     "ambiguous_events": int(test["ambiguous_same_bar"].sum()),
                 })
 
@@ -225,7 +226,7 @@ def main() -> int:
         "config_key": args.config_key,
         "horizon": horizon,
         "barrier_multiplier": mult,
-        "protocol": "four predeclared absolute-UTC phase streams; event starts separated by full horizon; phase-specific models train only on prior completed non-overlapping events; symmetric causal rv_120 barriers with 2bp floor; binary or ternary observed targets are valid; first barrier wins; same-bar dual hit is fail-closed as directional loss; expiry exits at horizon close; current quarter never used for model selection",
+        "protocol": "four predeclared absolute-UTC phase streams; event starts separated by full horizon; phase-specific models train only on prior completed non-overlapping events; symmetric causal rv_120 barriers with 2bp floor; binary or ternary training targets are valid; single-class future quarters are retained as OOS evidence; first barrier wins; same-bar dual hit is fail-closed as directional loss; expiry exits at horizon close; current quarter never used for model selection",
         "execution_cost_per_event": EXECUTION_COST,
         "excluded_forward_aligned_features": ["chikou_span"],
         "feature_sets": result_features,
