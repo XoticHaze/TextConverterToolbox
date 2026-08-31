@@ -28,8 +28,11 @@ def phases(horizon: int) -> list[int]:
 
 
 def utc_slot(ts: pd.Series) -> np.ndarray:
-    # Absolute UTC 12-minute clock index; independent of dataset start/missing rows.
-    return (ts.astype("int64").to_numpy() // BAR_NS).astype(np.int64)
+    # Normalize explicitly: pandas may preserve microsecond-resolution input,
+    # while BAR_NS is expressed in nanoseconds. Integer division is valid only
+    # after both operands use the same unit.
+    ns = pd.to_datetime(ts, utc=True).to_numpy(dtype="datetime64[ns]").astype(np.int64)
+    return (ns // BAR_NS).astype(np.int64)
 
 
 def phase_summary(phase_rows: dict[str, dict]) -> dict:
