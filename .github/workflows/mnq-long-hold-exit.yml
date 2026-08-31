@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - assistant/mnq-long-hold-exit-r1
+  pull_request:
+    branches:
+      - assistant/mnq-specialist-program-r1
+    paths:
+      - 'research/mnq_long_hold_exit_*.py'
+      - 'research/run_mnq_long_hold_exit_deep.py'
+      - '.github/workflows/mnq-long-hold-exit.yml'
   workflow_dispatch:
 
 permissions:
