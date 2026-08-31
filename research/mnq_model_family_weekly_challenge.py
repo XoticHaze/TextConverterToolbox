@@ -23,6 +23,7 @@ TEST_START = pd.Timestamp("2023-07-01", tz="UTC")
 TEST_END = pd.Timestamp("2026-01-01", tz="UTC")
 FAMILIES = ("logistic", "hist_gradient_boosting", "extra_trees")
 POINT_COSTS = (0.5, 1.0, 2.0, 4.0)
+MIN_COMPLETE_WEEKS = 80
 
 
 def make_model(name: str):
@@ -75,7 +76,7 @@ def summary(rows: list[dict], family: str) -> dict:
         field = f"median_phase_net_points_after_{key}pt"
         vals = np.asarray([r["families"][family]["phase_audit"].get(field) for r in rows], dtype=float)
         vals = vals[np.isfinite(vals)]
-        if len(vals) < 80:
+        if len(vals) < MIN_COMPLETE_WEEKS:
             raise RuntimeError(f"insufficient weekly economics for {family}/{key}: {len(vals)}")
         out[f"after_{key}pt"] = {
             "weeks": int(len(vals)),
@@ -102,6 +103,8 @@ def paired_summary(rows: list[dict], challenger: str, reference: str = "logistic
             if a is not None and b is not None:
                 diffs.append(float(a) - float(b))
         arr = np.asarray(diffs, dtype=float)
+        if len(arr) < MIN_COMPLETE_WEEKS:
+            raise RuntimeError(f"insufficient paired weeks for {challenger}/{key}: {len(arr)}")
         result[f"after_{key}pt"] = {
             "weeks": int(len(arr)),
             "median_challenger_minus_logistic_points": float(np.median(arr)),
@@ -159,7 +162,6 @@ def main() -> int:
             continue
 
         fitted = {name: fit_model(name, train[features].to_numpy(float), y_train) for name in FAMILIES}
-        preds = {name: m.predict(test[features].to_numpy(float)).astype(int) for name, m in fitted.items()}
         fit_receipts.append({
             "quarter": f"{start.year}Q{((start.month - 1)//3)+1}",
             "train_rows": int(len(train)),
@@ -171,7 +173,6 @@ def main() -> int:
 
         for week_key, positions in test.groupby("trade_week", sort=True).groups.items():
             pos = np.asarray(list(positions), dtype=int)
-            # groupby indices are original work indices; select through work to keep exact alignment.
             week = work.loc[pos]
             week = week[(week["timestamp"] >= start) & (week["timestamp"] < end) & week["target"].notna() & week["point_move"].notna()]
             if len(week) < 300:
@@ -193,12 +194,10 @@ def main() -> int:
                 "families": families,
             })
 
-    # A partial first/last trade week can occur at quarter boundaries; keep one record per exact trade week.
     by_week: dict[str, dict] = {}
     for row in weekly_rows:
         key = row["trade_week"]
         if key in by_week:
-            # Prefer the record with more rows; exact equal-size duplicates are a contract error.
             if row["rows"] == by_week[key]["rows"]:
                 raise RuntimeError(f"ambiguous duplicate trade week {key}")
             if row["rows"] > by_week[key]["rows"]:
@@ -206,7 +205,7 @@ def main() -> int:
         else:
             by_week[key] = row
     rows = [by_week[k] for k in sorted(by_week)]
-    if len(rows) < 100:
+    if len(rows) < MIN_COMPLETE_WEEKS:
         raise RuntimeError(f"insufficient unique weekly OOS rows: {len(rows)}")
 
     result = {
@@ -219,12 +218,13 @@ def main() -> int:
         "vol_multiplier": vol_mult,
         "feature_set": "baseline20",
         "families": list(FAMILIES),
+        "minimum_complete_weeks": MIN_COMPLETE_WEEKS,
         "model_contract": {
             "logistic": "StandardScaler + class-balanced LogisticRegression(max_iter=2000)",
             "hist_gradient_boosting": "HistGradientBoostingClassifier learning_rate=.05, max_iter=180, max_leaf_nodes=31, min_samples_leaf=40, balanced sample weights",
             "extra_trees": "ExtraTreesClassifier 160 trees, sqrt features, min_samples_leaf=20, class_weight=balanced",
         },
-        "protocol": "fixed quarterly past-only refits from 2023-07 through 2025-12 with horizon purge; identical MNQ future rows for all model families; report every futures trade week using all non-overlapping UTC phase streams; point economics at 0.5/1/2/4 MNQ points; no hyperparameter tuning or family selection on OOS",
+        "protocol": "fixed quarterly past-only refits from 2023-07 through 2025-12 with horizon purge; identical MNQ future rows for all model families; report every complete-enough futures trade week using all non-overlapping UTC phase streams; point economics at 0.5/1/2/4 MNQ points; no hyperparameter tuning or family selection on OOS",
         "fit_receipts": fit_receipts,
         "weekly_rows": rows,
         "summary": {name: summary(rows, name) for name in FAMILIES},
