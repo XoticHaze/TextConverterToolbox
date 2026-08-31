@@ -1,4 +1,4 @@
-name: mnq-opportunity-target-matrix
+name: mnq-nonoverlap-phase-audit
 
 on:
   pull_request:
@@ -31,20 +31,20 @@ jobs:
       - name: Install bounded dependencies
         shell: bash
         run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
-      - name: Execute one predeclared target configuration
+      - name: Execute fixed-phase non-overlap audit
         shell: bash
         env:
           CONFIG_KEY: ${{ matrix.key }}
         run: |
           set -euo pipefail
-          python -m research.run_opportunity_config \
+          python -m research.mnq_nonoverlap_phase_audit \
             --config-key "$CONFIG_KEY" \
             --deep-root deep/plaintext_csv \
             --output "result/${CONFIG_KEY}.json"
       - name: Upload config metrics only
         uses: actions/upload-artifact@v4
         with:
-          name: mnq-opportunity-${{ matrix.key }}
+          name: mnq-nonoverlap-${{ matrix.key }}
           path: result/${{ matrix.key }}.json
           if-no-files-found: error
           retention-days: 14
@@ -56,7 +56,7 @@ jobs:
       - name: Download config metrics
         uses: actions/download-artifact@v4
         with:
-          pattern: mnq-opportunity-*
+          pattern: mnq-nonoverlap-*
           path: parts
           merge-multiple: true
       - name: Merge receipts deterministically
@@ -74,15 +74,16 @@ jobs:
           protocol=None
           for p in files:
               d=json.loads(p.read_text())
-              if len(d.get('configs',{})) != 1:
-                  raise SystemExit(f'{p}: expected exactly one config')
+              key=d['config_key']
+              if key in configs:
+                  raise SystemExit(f'duplicate config {key}')
               if source is None:
                   source=d['source']; protocol=d['protocol']
               elif d['source'] != source or d['protocol'] != protocol:
                   raise SystemExit(f'{p}: source/protocol drift')
-              configs.update(d['configs'])
+              configs[key]=d
           out={
-              'schema':'foundry.mnq_opportunity_target_matrix_aggregate.v1',
+              'schema':'foundry.mnq_nonoverlap_phase_audit_aggregate.v1',
               'research_only':True,
               'promotion_authority':False,
               'source':source,
@@ -92,14 +93,14 @@ jobs:
           material=json.dumps(out,sort_keys=True,separators=(',',':')).encode()
           out['receipt_sha256']=hashlib.sha256(material).hexdigest()
           Path('result').mkdir(exist_ok=True)
-          Path('result/mnq-opportunity-target-matrix-aggregate.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
-          print('MNQ_OPPORTUNITY_TARGET_MATRIX_AGGREGATE=PASS')
+          Path('result/mnq-nonoverlap-phase-audit-aggregate.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print('MNQ_NONOVERLAP_PHASE_AUDIT_AGGREGATE=PASS')
           print('RECEIPT_SHA256='+out['receipt_sha256'])
           PY
       - name: Upload aggregate metrics only
         uses: actions/upload-artifact@v4
         with:
-          name: mnq-opportunity-target-matrix-results
-          path: result/mnq-opportunity-target-matrix-aggregate.json
+          name: mnq-nonoverlap-phase-audit-results
+          path: result/mnq-nonoverlap-phase-audit-aggregate.json
           if-no-files-found: error
           retention-days: 14
