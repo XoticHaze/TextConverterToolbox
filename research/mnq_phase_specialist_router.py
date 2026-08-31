@@ -11,7 +11,7 @@ import pandas as pd
 
 from research.expanded_regime_ablation import BASE_FEATURES, EXPANDED_FEATURES, REGIME_FEATURES, _add_features
 from research.mnq_external_transfer_validation import load_deep, deep_roll_schedule, stitch_deep, deep_bars
-from research.mnq_nonoverlap_phase_audit import BAR_NS, phases
+from research.mnq_nonoverlap_phase_audit import phases, utc_slot
 from research.mnq_opportunity_target_matrix import model, quarter_starts, target_columns
 
 CONFIGS = {
@@ -23,10 +23,6 @@ LOOKBACK_QUARTERS = 4
 MIN_SIGNAL_QUARTERS = 3
 MIN_RECENT_SIGNALS = 300
 COST = 0.0002
-
-
-def utc_slot(ts: pd.Series) -> np.ndarray:
-    return (ts.astype("int64").to_numpy() // BAR_NS).astype(np.int64)
 
 
 def event_returns(pred: np.ndarray, fwd: np.ndarray) -> np.ndarray:
@@ -174,8 +170,6 @@ def main() -> int:
                 "current_phase_for_future_selection_only": {str(k): v for k, v in current_phase.items()},
             })
 
-            # Append every calendar quarter, including no-signal quarters, only after
-            # the current decision. This prevents stale active-quarter evidence.
             for p in phase_ids:
                 history[p].append(current_phase[p])
 
@@ -185,7 +179,7 @@ def main() -> int:
         }
 
     result = {
-        "schema": "foundry.mnq_phase_specialist_router.v2",
+        "schema": "foundry.mnq_phase_specialist_router.v3",
         "research_only": True,
         "promotion_authority": False,
         "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
@@ -193,6 +187,7 @@ def main() -> int:
         "horizon": horizon,
         "vol_multiplier": mult,
         "protocol": "quarterly expanding model refit; four fixed non-overlap timing specialists; exactly one phase may be routed per quarter; router uses four PRIOR CALENDAR quarters after 2bp, requires signals in >=3/4 quarters and >=300 recent signals, positive median and >=2/3 positive usable quarters; no-signal quarters age evidence; no current-quarter selection leakage",
+        "clock_index_contract": "shared resolution-independent UTC Timedelta slot index from mnq_nonoverlap_phase_audit.v2",
         "selection_lookback_quarters": LOOKBACK_QUARTERS,
         "minimum_signal_quarters": MIN_SIGNAL_QUARTERS,
         "minimum_recent_signals": MIN_RECENT_SIGNALS,
