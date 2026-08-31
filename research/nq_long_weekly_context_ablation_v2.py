@@ -20,17 +20,29 @@ ARMS = ("baseline20", "long_weekly_26y")
 
 
 def normalize_long_weekly_anchor(weekly: pd.DataFrame) -> pd.DataFrame:
-    """Map Sunday futures week-open labels into the following Monday week."""
+    """Normalize week-open labels and dedupe only provably identical OHLCV overlaps."""
     w = weekly.copy()
     ts = pd.to_datetime(w["timestamp"], utc=True, errors="raise")
     sunday = ts.dt.weekday.eq(6)
     w.loc[sunday, "timestamp"] = ts.loc[sunday] + pd.Timedelta(days=1)
     semantic_week = week_start_utc(w["timestamp"])
-    duplicates = semantic_week.duplicated(keep=False)
+    w = w.assign(_semantic_week=semantic_week)
+    duplicates = w["_semantic_week"].duplicated(keep=False)
     if duplicates.any():
-        bad = semantic_week.loc[duplicates].dt.strftime("%Y-%m-%d").unique().tolist()
-        raise RuntimeError(f"long weekly semantic weeks not unique after Sunday normalization: {bad[:8]}")
-    return w
+        keep = np.ones(len(w), dtype=bool)
+        ohlcv = ["open", "high", "low", "close", "volume"]
+        for week, group in w.loc[duplicates].groupby("_semantic_week", sort=True):
+            first = group.iloc[0][ohlcv].to_numpy(float)
+            equivalent = all(np.array_equal(first, row[ohlcv].to_numpy(float)) for _, row in group.iloc[1:].iterrows())
+            if not equivalent:
+                evidence = group[["timestamp", *ohlcv]].to_dict("records")
+                raise RuntimeError(f"conflicting long weekly rows for semantic week {week.isoformat()}: {evidence}")
+            drop_idx = group.index[1:]
+            keep[drop_idx] = False
+        w = w.loc[keep].copy()
+    if w["_semantic_week"].duplicated().any():
+        raise RuntimeError("long weekly semantic week dedupe failed")
+    return w.drop(columns=["_semantic_week"]).sort_values("timestamp").reset_index(drop=True)
 
 
 def summarize(rows: list[dict], arm: str) -> dict:
@@ -123,7 +135,7 @@ def main() -> int:
         "config_key": args.config_key,
         "horizon": horizon,
         "vol_multiplier": vol_mult,
-        "protocol": "baseline20 versus 1999+ NQ slow weekly state on one identical complete-case panel; Sunday futures week-open labels normalized into the following Monday semantic week; weekly OHLCV withheld until following week; horizon purge before every OOS week; all non-overlapping UTC phase streams reported; no short-context warmup in row admission",
+        "protocol": "baseline20 versus 1999+ NQ slow weekly state on one identical complete-case panel; Sunday futures week-open labels normalized into the following Monday semantic week; identical duplicate OHLCV overlaps may collapse but conflicting rows fail closed; weekly OHLCV withheld until following week; horizon purge before every OOS week; all non-overlapping UTC phase streams reported; no short-context warmup in row admission",
         "feature_sets": {"baseline20": list(BASE_FEATURES), "long_weekly_26y": features},
         "weekly_windows": rows,
         "summary": summary,
