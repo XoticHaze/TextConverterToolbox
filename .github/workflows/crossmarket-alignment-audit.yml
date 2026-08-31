@@ -26,15 +26,15 @@ jobs:
       - name: Install bounded dependencies
         shell: bash
         run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
-      - name: Execute alignment-selection audit
+      - name: Execute strict alignment-selection audit
         shell: bash
         run: |
           set -euo pipefail
-          python -m research.crossmarket_alignment_audit --source-root axb --output result/crossmarket-alignment-audit.json
+          python -m research.crossmarket_alignment_audit_v2 --source-root axb --output result/crossmarket-alignment-audit-v2.json
       - name: Upload metrics only
         uses: actions/upload-artifact@v4
         with:
-          name: crossmarket-alignment-audit-results
-          path: result/crossmarket-alignment-audit.json
+          name: crossmarket-alignment-audit-v2-results
+          path: result/crossmarket-alignment-audit-v2.json
           if-no-files-found: error
           retention-days: 14
