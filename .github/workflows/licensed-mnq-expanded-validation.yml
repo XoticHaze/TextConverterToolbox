@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python research/licensed_mnq_expanded_validation.py \
+          python -m research.licensed_mnq_expanded_validation \
             --aggregate source/mnq-ohlcv-1m.csv \
             --output result/licensed-mnq-expanded-validation.json
 
