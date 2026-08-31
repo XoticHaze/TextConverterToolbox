@@ -20,6 +20,8 @@ CONFIGS = {
     "h24_vol10": (24, 1.0),
 }
 LOOKBACK_QUARTERS = 4
+MIN_SIGNAL_QUARTERS = 3
+MIN_RECENT_SIGNALS = 300
 COST = 0.0002
 
 
@@ -47,7 +49,7 @@ def aggregate(returns: list[float], quarter_net: list[float]) -> dict:
     arr = np.asarray(returns, dtype=float)
     q = np.asarray(quarter_net, dtype=float)
     if len(arr) == 0:
-        return {"signals": 0}
+        return {"signals": 0, "quarters_traded": 0}
     std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
     t_stat = float(np.mean(arr) / (std / math.sqrt(len(arr)))) if std > 0 else None
     return {
@@ -62,6 +64,23 @@ def aggregate(returns: list[float], quarter_net: list[float]) -> dict:
         "median_quarter_net_after_2bp": float(np.median(q)) if len(q) else None,
         "min_quarter_net_after_2bp": float(np.min(q)) if len(q) else None,
         "max_quarter_net_after_2bp": float(np.max(q)) if len(q) else None,
+    }
+
+
+def score_window(window: list[dict]) -> dict | None:
+    if len(window) != LOOKBACK_QUARTERS:
+        return None
+    usable = [x for x in window if x["net2"] is not None and x["signals"] > 0]
+    total_signals = int(sum(x["signals"] for x in usable))
+    if len(usable) < MIN_SIGNAL_QUARTERS or total_signals < MIN_RECENT_SIGNALS:
+        return None
+    values = np.asarray([x["net2"] for x in usable], dtype=float)
+    return {
+        "median_net2": float(np.median(values)),
+        "positive_rate": float(np.mean(values > 0)),
+        "usable_quarters": int(len(usable)),
+        "calendar_quarters": LOOKBACK_QUARTERS,
+        "recent_signals": total_signals,
     }
 
 
@@ -120,14 +139,15 @@ def main() -> int:
 
             phase_scores = {}
             for p in phase_ids:
-                h = history[p][-LOOKBACK_QUARTERS:]
-                if len(h) >= LOOKBACK_QUARTERS:
-                    median = float(np.median(h))
-                    positive_rate = float(np.mean(np.asarray(h) > 0))
-                    phase_scores[p] = {"median_net2": median, "positive_rate": positive_rate}
+                score = score_window(history[p][-LOOKBACK_QUARTERS:])
+                if score is not None:
+                    phase_scores[p] = score
 
-            eligible = [p for p, s in phase_scores.items() if s["median_net2"] > 0 and s["positive_rate"] >= 0.5]
-            chosen = max(eligible, key=lambda p: (phase_scores[p]["median_net2"], -p)) if eligible else None
+            eligible = [
+                p for p, s in phase_scores.items()
+                if s["median_net2"] > 0 and s["positive_rate"] >= (2.0 / 3.0)
+            ]
+            chosen = max(eligible, key=lambda p: (phase_scores[p]["median_net2"], phase_scores[p]["recent_signals"], -p)) if eligible else None
             chosen_returns = np.asarray([], dtype=float)
             if chosen is not None:
                 pmask = (slots % horizon) == chosen
@@ -136,26 +156,28 @@ def main() -> int:
                     selected_returns.extend(chosen_returns.tolist())
                     selected_quarter_net.append(float(np.mean(chosen_returns)))
 
-            current_phase_net = {}
+            current_phase = {}
             for p in phase_ids:
                 pmask = (slots % horizon) == p
                 r = event_returns(pred[pmask], fwd_test[pmask])
-                net = float(np.mean(r)) if len(r) else None
-                current_phase_net[p] = net
+                current_phase[p] = {
+                    "net2": float(np.mean(r)) if len(r) else None,
+                    "signals": int(len(r)),
+                }
 
             router_rows.append({
                 "period": f"{start.year}Q{((start.month - 1)//3)+1}",
                 "chosen_phase": chosen,
-                "selection_scores_from_prior_only": phase_scores,
+                "selection_scores_from_prior_only": {str(k): v for k, v in phase_scores.items()},
                 "chosen_signals": int(len(chosen_returns)),
                 "chosen_current_quarter_net2": float(np.mean(chosen_returns)) if len(chosen_returns) else None,
-                "current_phase_net2_for_future_selection_only": {str(k): v for k, v in current_phase_net.items()},
+                "current_phase_for_future_selection_only": {str(k): v for k, v in current_phase.items()},
             })
 
-            # Current quarter is appended only after the current decision/evaluation.
-            for p, net in current_phase_net.items():
-                if net is not None:
-                    history[p].append(net)
+            # Append every calendar quarter, including no-signal quarters, only after
+            # the current decision. This prevents stale active-quarter evidence.
+            for p in phase_ids:
+                history[p].append(current_phase[p])
 
         results[feature_name] = {
             "router_rows": router_rows,
@@ -163,15 +185,17 @@ def main() -> int:
         }
 
     result = {
-        "schema": "foundry.mnq_phase_specialist_router.v1",
+        "schema": "foundry.mnq_phase_specialist_router.v2",
         "research_only": True,
         "promotion_authority": False,
         "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
         "config_key": args.config_key,
         "horizon": horizon,
         "vol_multiplier": mult,
-        "protocol": "quarterly expanding model refit; four fixed non-overlap timing specialists; exactly one phase may be routed per quarter; router uses only trailing four PRIOR outer-quarter phase net returns after 2bp; positive median and >=50% positive prior quarters required; no current-quarter selection leakage",
+        "protocol": "quarterly expanding model refit; four fixed non-overlap timing specialists; exactly one phase may be routed per quarter; router uses four PRIOR CALENDAR quarters after 2bp, requires signals in >=3/4 quarters and >=300 recent signals, positive median and >=2/3 positive usable quarters; no-signal quarters age evidence; no current-quarter selection leakage",
         "selection_lookback_quarters": LOOKBACK_QUARTERS,
+        "minimum_signal_quarters": MIN_SIGNAL_QUARTERS,
+        "minimum_recent_signals": MIN_RECENT_SIGNALS,
         "cost_per_event": COST,
         "phase_offsets": phase_ids,
         "excluded_forward_aligned_features": ["chikou_span"],
