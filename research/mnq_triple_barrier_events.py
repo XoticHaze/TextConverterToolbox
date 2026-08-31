@@ -12,7 +12,6 @@ from sklearn.metrics import balanced_accuracy_score, f1_score
 
 from research.expanded_regime_ablation import BASE_FEATURES, EXPANDED_FEATURES, REGIME_FEATURES, _add_features
 from research.mnq_external_transfer_validation import load_deep, deep_roll_schedule, stitch_deep, deep_bars
-from research.mnq_nonoverlap_phase_audit import BAR_NS
 from research.mnq_opportunity_target_matrix import model, quarter_starts
 
 CONFIGS = {
@@ -22,21 +21,17 @@ CONFIGS = {
     "h24_k10": (24, 1.0),
 }
 COST_FLOOR = 0.0002
+BAR = pd.Timedelta(minutes=12)
+EPOCH = pd.Timestamp("1970-01-01", tz="UTC")
 
 
 def utc_slot(ts: pd.Series) -> np.ndarray:
-    return (ts.astype("int64").to_numpy() // BAR_NS).astype(np.int64)
+    parsed = pd.to_datetime(ts, utc=True, errors="raise")
+    return ((parsed - EPOCH) // BAR).to_numpy(dtype=np.int64)
 
 
 def build_events(frame: pd.DataFrame, horizon: int, mult: float) -> tuple[pd.DataFrame, dict]:
-    """Create absolute-clock, non-overlapping events with causal barriers.
-
-    Events start only when absolute UTC 12-minute slot % horizon == 0. Their
-    vertical barrier is exactly horizon * 12 minutes later, so event windows do
-    not overlap in clock time. Barrier width is fixed at entry from causal
-    rv_120. If both barriers are first touched inside the same future bar the
-    event is ambiguous and excluded rather than assuming intrabar ordering.
-    """
+    """Create absolute-clock, non-overlapping events with causal barriers."""
     work = frame.copy().reset_index(drop=True)
     work["utc_slot"] = utc_slot(work["timestamp"])
     starts = np.flatnonzero((work["utc_slot"].to_numpy(np.int64) % horizon) == 0)
@@ -48,7 +43,7 @@ def build_events(frame: pd.DataFrame, horizon: int, mult: float) -> tuple[pd.Dat
         if not np.isfinite(float(entry["rv_120"])):
             continue
         entry_ts = entry["timestamp"]
-        vertical_ts = entry_ts + pd.Timedelta(minutes=12 * horizon)
+        vertical_ts = entry_ts + BAR * horizon
         future = work[(work["timestamp"] > entry_ts) & (work["timestamp"] <= vertical_ts)]
         if future.empty:
             no_future += 1
@@ -102,14 +97,14 @@ def build_events(frame: pd.DataFrame, horizon: int, mult: float) -> tuple[pd.Dat
     events = pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
     if events.empty:
         raise RuntimeError("no triple-barrier events")
-    # Windows must be non-overlapping by construction.
-    ts = events["timestamp"].astype("int64").to_numpy()
-    if len(ts) > 1 and np.any(np.diff(ts) < horizon * BAR_NS):
+    gaps = events["timestamp"].diff().dropna()
+    if not gaps.empty and (gaps < BAR * horizon).any():
         raise RuntimeError("event clock windows overlap")
     return events, {
         "events": int(len(events)),
         "ambiguous_same_bar_first_touch_excluded": int(ambiguous),
         "event_starts_without_future_bars": int(no_future),
+        "minimum_event_start_gap_minutes": float(gaps.min() / pd.Timedelta(minutes=1)) if not gaps.empty else None,
         "label_counts": {str(c): int((events["label"] == c).sum()) for c in (-1, 0, 1)},
     }
 
@@ -243,7 +238,7 @@ def main() -> int:
         results[fname] = {"quarter_rows": rows, "aggregate": summarize(rows, all_pred, all_label, all_th, all_ret)}
 
     result = {
-        "schema": "foundry.mnq_triple_barrier_events.v1",
+        "schema": "foundry.mnq_triple_barrier_events.v2",
         "research_only": True,
         "promotion_authority": False,
         "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
@@ -252,6 +247,7 @@ def main() -> int:
         "barrier_multiplier": mult,
         "barrier": "symmetric log-price barrier max(2bp, multiplier * causal rv_120 * sqrt(horizon)) fixed at event entry",
         "event_schedule": "absolute UTC 12-minute slot modulo horizon == 0; vertical barrier exactly horizon*12 minutes; non-overlapping clock windows",
+        "clock_index_contract": "UTC slot uses Timedelta floor division from Unix epoch and event gaps use Timedelta comparison; independent of pandas datetime storage resolution",
         "label": "first upper hit=+1, first lower hit=-1, vertical expiry=0; same-bar dual first hit excluded as ambiguous",
         "protocol": "quarterly expanding past-only event refit; training requires event vertical timestamp strictly before outer-quarter start; fixed outer quarters; no threshold selection from future outcomes",
         "excluded_forward_aligned_features": ["chikou_span"],
