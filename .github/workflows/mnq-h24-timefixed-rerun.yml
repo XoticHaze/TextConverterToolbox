@@ -1,0 +1,97 @@
+name: MNQ H24 corrected timestamp rerun
+
+on:
+  pull_request:
+    paths:
+      - 'research/deep_mnq_source_contract.py'
+      - 'research/mnq_h24_source_parity.py'
+      - 'research/mnq_h24_source_parity_timefixed.py'
+      - 'research/mnq_expected_move_forward_2026.py'
+      - 'research/mnq_expected_move_forward_2026_timefixed.py'
+      - 'research/mnq_h24_mae_risk_specialist.py'
+      - 'research/mnq_h24_mae_risk_timefixed.py'
+      - '.github/workflows/mnq-h24-timefixed-rerun.yml'
+  workflow_dispatch:
+
+jobs:
+  corrected-h24-receipts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install research dependencies
+        run: python -m pip install --disable-pip-version-check numpy pandas scikit-learn tzdata
+
+      - name: Fetch pinned deep MNQ corpus
+        shell: bash
+        run: |
+          mkdir -p vendor/MNQ_DATA
+          git -C vendor/MNQ_DATA init
+          git -C vendor/MNQ_DATA remote add origin https://github.com/mbytes21/MNQ_DATA.git
+          git -C vendor/MNQ_DATA fetch --depth=1 origin fc5508e2c152938d6d9eb70a36b888ae26107176
+          git -C vendor/MNQ_DATA checkout --detach FETCH_HEAD
+          test "$(git -C vendor/MNQ_DATA rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+
+      - name: Fetch pinned independent AXB corpus
+        shell: bash
+        run: |
+          mkdir -p vendor/cme-futures-ohlc
+          git -C vendor/cme-futures-ohlc init
+          git -C vendor/cme-futures-ohlc remote add origin https://github.com/axb0306/cme-futures-ohlc.git
+          git -C vendor/cme-futures-ohlc fetch --depth=1 origin 60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264
+          git -C vendor/cme-futures-ohlc checkout --detach FETCH_HEAD
+          test "$(git -C vendor/cme-futures-ohlc rev-parse HEAD)" = "60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264"
+
+      - name: Run corrected same-timestamp source parity
+        run: |
+          mkdir -p artifacts/h24-timefixed
+          python -m research.mnq_h24_source_parity_timefixed \
+            --deep-root vendor/MNQ_DATA/plaintext_csv \
+            --axb-root vendor/cme-futures-ohlc \
+            --output artifacts/h24-timefixed/source-parity.json
+
+      - name: Run corrected expected-move forward validation
+        run: |
+          python -m research.mnq_expected_move_forward_2026_timefixed \
+            --deep-root vendor/MNQ_DATA/plaintext_csv \
+            --output artifacts/h24-timefixed/expected-move-forward.json
+
+      - name: Run corrected H24 MAE-risk specialist
+        run: |
+          python -m research.mnq_h24_mae_risk_timefixed \
+            --deep-root vendor/MNQ_DATA/plaintext_csv \
+            --output artifacts/h24-timefixed/mae-risk.json
+
+      - name: Print compact corrected receipt summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root = Path('artifacts/h24-timefixed')
+          for name in ['source-parity.json', 'expected-move-forward.json', 'mae-risk.json']:
+              data = json.loads((root / name).read_text())
+              print(name, 'schema=', data.get('schema'), 'sha=', data.get('receipt_sha256'))
+              if name == 'source-parity.json':
+                  ov = data.get('overlap', {})
+                  print('  overlap_rows=', ov.get('rows'))
+                  print('  feature_corr_median=', ov.get('feature_correlation_median'))
+                  print('  ridge_score_corr=', ov.get('ridge_score_correlation'))
+                  print('  future_move_corr=', ov.get('future_point_move_correlation'))
+                  print('  future_move_sign_agreement=', ov.get('future_move_sign_agreement'))
+              else:
+                  print('  summary=', json.dumps(data.get('summary', {}), sort_keys=True))
+                  if 'paired_mae_veto_minus_logistic' in data:
+                      print('  paired=', json.dumps(data['paired_mae_veto_minus_logistic'], sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mnq-h24-timefixed-receipts
+          path: artifacts/h24-timefixed/*.json
+          if-no-files-found: error
