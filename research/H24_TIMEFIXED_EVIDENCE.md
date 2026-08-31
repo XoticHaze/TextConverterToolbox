@@ -43,6 +43,23 @@ The corrected parity receipt contains eight AXB-only later weeks after the deep 
 
 This extension is a later-time independent-source challenge, not a promotion verdict.
 
-## MAE risk
+## Corrected MAE risk receipt
 
-The corrected-timestamp MAE rerun produced 57 valid policy weeks versus the original reporting guard of 60. The model/policy contract is unchanged. A descriptive receipt is being emitted with the original 60-week gate preserved explicitly; a below-60 result cannot satisfy that original reporting/promotion evidence gate.
+Receipt: `54ad36dbb8e9c2ccd13b532fb0f2a41f8e8d3d82a5e7550a20df52ff4e2c4a56`
+
+The corrected-timestamp MAE rerun has 83 valid logistic weeks but only 57 valid MAE-veto weeks, below the original 60-week reporting guard. The emitted receipt is therefore explicitly `descriptive_only_below_original_60_week_reporting_gate`; the original gate remains failed.
+
+At a 1-point cost:
+
+- logistic: 44/83 positive weeks; median `+0.6452`; mean `+5.3698`; p10 `-33.2759`; worst `-53.2277`.
+- MAE top-quartile veto: 30/57 positive weeks; median `+0.9250`; mean `+4.1072`; p10 `-41.1200`; worst `-63.9000`.
+- paired veto minus logistic over the 57 comparable weeks: median `-1.6042`; mean `-0.6412`; win fraction `0.4912`.
+
+Decision: reject the crude MAE veto policy.
+
+The risk estimator itself remains a research hypothesis rather than a policy result. Across quarterly fits:
+
+- short-side predicted-vs-realized MAE correlation: median OOF approximately `0.3683`; median future-quarter approximately `0.3270`.
+- long-side: median OOF only approximately `0.0631`, despite median future-quarter approximately `0.3912`.
+
+Interpretation: short-side MAE ranking has the cleaner internal/external consistency and earns an independent-source validation. Long-side MAE does not yet have sufficiently consistent OOF evidence to be treated as validated. No veto, sizing, or capital-routing authority follows from this receipt.
