@@ -48,6 +48,8 @@ jobs:
           test "$(git -C vendor/cme-futures-ohlc rev-parse HEAD)" = "60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264"
 
       - name: Run corrected same-timestamp source parity
+        id: parity
+        continue-on-error: true
         run: |
           mkdir -p artifacts/h24-timefixed
           python -m research.mnq_h24_source_parity_timefixed \
@@ -56,18 +58,24 @@ jobs:
             --output artifacts/h24-timefixed/source-parity.json
 
       - name: Run corrected expected-move forward validation
+        id: expected_move
+        continue-on-error: true
         run: |
           python -m research.mnq_expected_move_forward_2026_timefixed \
+            --config-key h24_vol05 \
             --deep-root vendor/MNQ_DATA/plaintext_csv \
             --output artifacts/h24-timefixed/expected-move-forward.json
 
       - name: Run corrected H24 MAE-risk specialist
+        id: mae
+        continue-on-error: true
         run: |
           python -m research.mnq_h24_mae_risk_timefixed \
             --deep-root vendor/MNQ_DATA/plaintext_csv \
             --output artifacts/h24-timefixed/mae-risk.json
 
       - name: Print compact corrected receipt summary
+        if: always()
         shell: bash
         run: |
           python - <<'PY'
@@ -75,7 +83,11 @@ jobs:
           from pathlib import Path
           root = Path('artifacts/h24-timefixed')
           for name in ['source-parity.json', 'expected-move-forward.json', 'mae-risk.json']:
-              data = json.loads((root / name).read_text())
+              path = root / name
+              if not path.exists():
+                  print(name, 'MISSING')
+                  continue
+              data = json.loads(path.read_text())
               print(name, 'schema=', data.get('schema'), 'sha=', data.get('receipt_sha256'))
               if name == 'source-parity.json':
                   ov = data.get('overlap', {})
@@ -91,7 +103,24 @@ jobs:
           PY
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: mnq-h24-timefixed-receipts
           path: artifacts/h24-timefixed/*.json
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Require all corrected receipts
+        if: always()
+        env:
+          PARITY_OUTCOME: ${{ steps.parity.outcome }}
+          EXPECTED_MOVE_OUTCOME: ${{ steps.expected_move.outcome }}
+          MAE_OUTCOME: ${{ steps.mae.outcome }}
+        shell: bash
+        run: |
+          echo "parity=$PARITY_OUTCOME expected_move=$EXPECTED_MOVE_OUTCOME mae=$MAE_OUTCOME"
+          test "$PARITY_OUTCOME" = success
+          test "$EXPECTED_MOVE_OUTCOME" = success
+          test "$MAE_OUTCOME" = success
+          test -f artifacts/h24-timefixed/source-parity.json
+          test -f artifacts/h24-timefixed/expected-move-forward.json
+          test -f artifacts/h24-timefixed/mae-risk.json
