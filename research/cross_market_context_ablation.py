@@ -4,9 +4,9 @@ Research-only. Compares a target-market baseline against one or more causal
 context feature sets on identical expanding chronological folds. This module
 owns no runtime, trading, StrategySpec, corpus, or promotion authority.
 
-Expected input is a pre-materialized target panel containing timestamp, binary
-label, and causal target features. Context frames are raw timestamp/close bars
-and are aligned exclusively through causal_cross_market_context.
+Expected input is a pre-materialized target panel containing timestamp, close,
+binary label, and causal target features. Context frames are raw timestamp/close
+bars and are aligned exclusively through causal_cross_market_context.
 """
 from __future__ import annotations
 
@@ -26,13 +26,13 @@ from sklearn.preprocessing import StandardScaler
 from causal_cross_market_context import ContextSpec, assert_causal_context, build_context_features
 
 
-def _fold_boundaries(n: int, min_train: int, test_size: int) -> list[tuple[int, int, int]]:
+def _fold_boundaries(n: int, min_train: int, test_size: int) -> list[tuple[int, int]]:
     if min_train <= 0 or test_size <= 0:
         raise ValueError("min_train and test_size must be positive")
     out = []
     start = min_train
     while start + test_size <= n:
-        out.append((0, start, start + test_size))
+        out.append((start, start + test_size))
         start += test_size
     if not out:
         raise ValueError("insufficient rows for one chronological fold")
@@ -47,7 +47,7 @@ def _score_panel(panel: pd.DataFrame, features: list[str], label: str, min_train
     fold_rows = []
     all_y: list[int] = []
     all_p: list[float] = []
-    for _, train_end_raw, test_end in _fold_boundaries(len(rows), min_train, test_size):
+    for train_end_raw, test_end in _fold_boundaries(len(rows), min_train, test_size):
         train_end = train_end_raw - purge_rows
         if train_end <= 0:
             raise ValueError("purge removes all training rows")
@@ -71,11 +71,18 @@ def _score_panel(panel: pd.DataFrame, features: list[str], label: str, min_train
 
 
 def run_ablation(target: pd.DataFrame, contexts: Mapping[str, pd.DataFrame], *, label: str, target_features: list[str], min_train: int, test_size: int, purge_rows: int, max_staleness: str = "15min") -> dict:
+    required = {"timestamp", "close", label, *target_features}
+    missing = required - set(target.columns)
+    if missing:
+        raise ValueError(f"target missing columns {sorted(missing)}")
     if label in target_features:
         raise ValueError("label cannot be a feature")
+    if purge_rows < 0:
+        raise ValueError("purge_rows must be non-negative")
     target = target.copy()
     target["timestamp"] = pd.to_datetime(target["timestamp"], utc=True, errors="raise")
-    ctx = build_context_features(target[["timestamp", target_features[0]]].rename(columns={target_features[0]: "close"}), contexts, ContextSpec(max_staleness=pd.Timedelta(max_staleness)))
+    target = target.sort_values("timestamp").drop_duplicates("timestamp", keep="last").reset_index(drop=True)
+    ctx = build_context_features(target[["timestamp", "close"]], contexts, ContextSpec(max_staleness=pd.Timedelta(max_staleness)))
     assert_causal_context(ctx)
     panel = target.merge(ctx, on="timestamp", how="left", validate="one_to_one")
     context_features = [c for c in ctx.columns if c != "timestamp" and not c.endswith("__source_timestamp") and not c.endswith("__age_seconds")]
@@ -86,7 +93,7 @@ def run_ablation(target: pd.DataFrame, contexts: Mapping[str, pd.DataFrame], *, 
     experiments["target_plus_all_context"] = target_features + context_features
     scores = {name: _score_panel(panel, feats, label, min_train, test_size, purge_rows) for name, feats in experiments.items()}
     base = scores["target_only"]
-    for name, score in scores.items():
+    for score in scores.values():
         score["delta_balanced_accuracy_vs_target_only"] = score["balanced_accuracy"] - base["balanced_accuracy"]
         score["delta_roc_auc_vs_target_only"] = None if score["roc_auc"] is None or base["roc_auc"] is None else score["roc_auc"] - base["roc_auc"]
     return {"contract": "cross_market_context_ablation.v1", "selection_authority": False, "promotion_authority": False, "label": label, "target_features": target_features, "context_roots": list(contexts), "purge_rows": purge_rows, "scores": scores}
