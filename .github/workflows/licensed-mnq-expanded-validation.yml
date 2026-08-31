@@ -41,7 +41,11 @@ jobs:
             -o source/mnq.zip
           echo '633eb4338a3aa60aedb542b12085acca29ff237c7cadff65442a638466f37667  source/mnq.zip' | sha256sum -c -
           unzip -q source/mnq.zip -d source/extracted
-          test -s source/extracted/mnq-ohlcv-1m.csv
+          aggregate="$(find source/extracted -type f -name 'mnq-ohlcv-1m.csv' -print -quit)"
+          test -n "$aggregate"
+          test -s "$aggregate"
+          cp "$aggregate" source/mnq-ohlcv-1m.csv
+          echo "LICENSED_MNQ_AGGREGATE=$aggregate"
           echo 'LICENSED_MNQ_SOURCE=PASS'
 
       - name: Install bounded research dependencies
@@ -53,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           python research/licensed_mnq_expanded_validation.py \
-            --aggregate source/extracted/mnq-ohlcv-1m.csv \
+            --aggregate source/mnq-ohlcv-1m.csv \
             --output result/licensed-mnq-expanded-validation.json
 
       - name: Upload metrics only
