@@ -1,0 +1,42 @@
+name: mnq-short-opportunity-deep
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'research/mnq_short_opportunity_*.py'
+      - 'research/run_mnq_short_opportunity_deep.py'
+      - '.github/workflows/mnq-short-opportunity-deep.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned deep MNQ source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/mbytes21/MNQ_DATA.git deep
+          git -C deep checkout --detach fc5508e2c152938d6d9eb70a36b888ae26107176
+          test "$(git -C deep rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+          test -f 'deep/plaintext_csv/MNQ 03-20/20191209.Last.csv'
+      - name: Install bounded dependencies
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+      - name: Run short-opportunity OOS panel
+        run: |
+          set -euo pipefail
+          python -m research.run_mnq_short_opportunity_deep \
+            --deep-root deep/plaintext_csv \
+            --output result/mnq-short-opportunity-deep.json
+      - name: Upload metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnq-short-opportunity-deep-results
+          path: result/mnq-short-opportunity-deep.json
+          if-no-files-found: error
+          retention-days: 14
