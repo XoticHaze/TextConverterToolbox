@@ -1,0 +1,47 @@
+name: expanded-regime-ablation
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout research harness
+        uses: actions/checkout@v4
+
+      - name: Checkout exact pinned AXB source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/axb0306/cme-futures-ohlc.git axb
+          git -C axb checkout --detach 60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264
+          test "$(git -C axb rev-parse HEAD)" = "60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264"
+          echo 'AXB_PIN=PASS'
+
+      - name: Install bounded research dependencies
+        shell: bash
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+
+      - name: Execute baseline vs expanded vs regime/context ablation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/expanded_regime_ablation.py \
+            --source-root axb \
+            --output result/expanded-regime-ablation.json
+
+      - name: Upload metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: expanded-regime-ablation-results
+          path: result/expanded-regime-ablation.json
+          if-no-files-found: error
+          retention-days: 14
