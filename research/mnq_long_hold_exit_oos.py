@@ -22,6 +22,7 @@ class HoldExitOOSSpec:
     trailing_points: float = 8.0
     atr_multiple: float = 2.0
     probability_threshold: float = 0.5
+    refit_interval_rows: int = 1
 
     def __post_init__(self) -> None:
         if self.min_train_rows < 2:
@@ -34,6 +35,8 @@ class HoldExitOOSSpec:
             raise ValueError("atr_multiple must be positive")
         if not 0.0 < self.probability_threshold < 1.0:
             raise ValueError("probability_threshold must be inside (0, 1)")
+        if self.refit_interval_rows < 1:
+            raise ValueError("refit_interval_rows must be >= 1")
 
 
 def _fit_ridge_probability(x: np.ndarray, y: np.ndarray, ridge: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -67,11 +70,9 @@ def chronological_long_hold_exit_panel(
     """Build paired OOS HOLD/EXIT actions on identical hypothetical long paths.
 
     Each target row identifies a hypothetical entry at row ``i``. The action is
-    made at ``i + decision_bars``, so learned features and ATR are sampled at that
-    decision row for both historical training examples and the current OOS test.
-    Labels remain attached to their entry rows because their forward horizon is
-    defined from entry. Training is purge-aware: a historical entry row ``j`` is
-    eligible only after ``j + horizon_bars`` has resolved by the current decision.
+    made at ``i + decision_bars``. Training is purge-aware. ``refit_interval_rows``
+    may reuse a fit between causal refits for large research corpora; the default
+    of 1 preserves the original per-row expanding-fit semantics.
     """
     if len(frame) != len(targets) or not frame.index.equals(targets.index):
         raise ValueError("frame and targets must have identical indexed rows")
@@ -92,11 +93,16 @@ def chronological_long_hold_exit_panel(
         raise ValueError("ATR inputs must be positive")
 
     labels = targets["hold_label"]
+    label_valid = ~labels.isna().to_numpy()
     out_rows: list[dict[str, object]] = []
     n = len(frame)
+    cached_fit: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+    cached_train_rows = 0
+    cached_train_last_row = -1
+    cached_train_last_decision_row = -1
 
     for i in range(n):
-        if pd.isna(labels.iloc[i]):
+        if not label_valid[i]:
             continue
         decision_i = i + target_spec.decision_bars
         horizon_i = i + target_spec.horizon_bars
@@ -104,20 +110,24 @@ def chronological_long_hold_exit_panel(
             continue
 
         last_train = decision_i - target_spec.horizon_bars
-        eligible = np.arange(max(0, last_train + 1), dtype=int)
-        eligible = eligible[~labels.iloc[eligible].isna().to_numpy()]
+        if last_train < 0:
+            continue
+        eligible = np.flatnonzero(label_valid[: last_train + 1])
         if len(eligible) < oos_spec.min_train_rows:
             continue
 
-        # A historical target row j describes a decision at j + decision_bars.
-        # Pair its label with the market state actually observable at that decision,
-        # not with the earlier entry state.
-        train_decisions = eligible + target_spec.decision_bars
-        if (train_decisions >= n).any():
-            raise AssertionError("eligible training decision exceeds frame")
-        y_train = labels.iloc[eligible].astype(float).to_numpy()
-        fit = _fit_ridge_probability(x[train_decisions], y_train, oos_spec.ridge)
-        probability = _predict_probability(x[decision_i], fit)
+        should_refit = cached_fit is None or (len(eligible) - cached_train_rows) >= oos_spec.refit_interval_rows
+        if should_refit:
+            train_decisions = eligible + target_spec.decision_bars
+            if (train_decisions >= n).any():
+                raise AssertionError("eligible training decision exceeds frame")
+            y_train = labels.iloc[eligible].astype(float).to_numpy()
+            cached_fit = _fit_ridge_probability(x[train_decisions], y_train, oos_spec.ridge)
+            cached_train_rows = int(len(eligible))
+            cached_train_last_row = int(eligible[-1])
+            cached_train_last_decision_row = int(train_decisions[-1])
+
+        probability = _predict_probability(x[decision_i], cached_fit)
         learned_hold = probability >= oos_spec.probability_threshold
 
         decision_window = close[i : decision_i + 1]
@@ -134,9 +144,9 @@ def chronological_long_hold_exit_panel(
 
         row: dict[str, object] = {
             "row_index": i,
-            "train_rows": int(len(eligible)),
-            "train_last_row": int(eligible[-1]),
-            "train_last_decision_row": int(train_decisions[-1]),
+            "train_rows": cached_train_rows,
+            "train_last_row": cached_train_last_row,
+            "train_last_decision_row": cached_train_last_decision_row,
             "decision_row": int(decision_i),
             "target_resolution_row": int(horizon_i),
             "realized_hold_label": int(labels.iloc[i]),
@@ -152,6 +162,7 @@ def chronological_long_hold_exit_panel(
             "trailing_realized_points": reward(trailing_hold),
             "atr_trailing_realized_points": reward(atr_trailing_hold),
             "cost_points": float(target_spec.cost_points),
+            "refit_interval_rows": int(oos_spec.refit_interval_rows),
             "research_only": True,
         }
         if "timestamp" in frame:
