@@ -1,0 +1,79 @@
+name: quick-h12-feature-ablation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Fetch exact research harness and pinned market source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research result
+          curl --fail --location \
+            'https://raw.githubusercontent.com/XoticHaze/TextConverterToolbox/7842891b1fb1c598fc762a6ea222745dd08ed717/research/expanded_regime_ablation.py' \
+            -o research/expanded_regime_ablation.py
+          git clone --filter=blob:none https://github.com/axb0306/cme-futures-ohlc.git axb
+          git -C axb checkout --detach 60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264
+          test "$(git -C axb rev-parse HEAD)" = "60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264"
+
+      - name: Install bounded dependencies
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+
+      - name: Execute current-target feature ablation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import glob, importlib.util, json, hashlib
+          from pathlib import Path
+          spec=importlib.util.spec_from_file_location('ab','research/expanded_regime_ablation.py')
+          ab=importlib.util.module_from_spec(spec); spec.loader.exec_module(ab)
+          frames={}
+          for root in ab.ROOTS:
+              matches=glob.glob(f'axb/{root}/{root}_1min_*.csv')
+              if len(matches)!=1: raise SystemExit(f'{root} source mismatch: {matches}')
+              frames[root]=ab._add_features(ab._build_bars(Path(matches[0]),root))
+          ctx=ab._contextualize(frames)
+          modes=ab._feature_modes(ctx)
+          result={'schema':'foundry.quick_h12_feature_ablation.v1','source_commit':ab.SOURCE_COMMIT,'target':'target_dir_h12','markets':{},'pooled':{}}
+          for root,frame in frames.items():
+              rows={}
+              for mode,features in modes.items():
+                  ev=ab._evaluate(frame,features,'target_dir_h12',12)
+                  if ev is not None: rows[mode]=ev
+              result['markets'][root]=rows
+              print(root, {k:round(v['holdout']['balanced_accuracy'],6) for k,v in rows.items()})
+          market_features=modes['expanded_regime_context']
+          pooled,ids=ab._pooled_frame(frames,market_features)
+          pmodes={
+              'baseline20_market_id':ab.BASE_FEATURES+ids,
+              'expanded_market_id':list(dict.fromkeys(ab.BASE_FEATURES+ab.EXPANDED_FEATURES+ids)),
+              'expanded_regime_market_id':list(dict.fromkeys(ab.BASE_FEATURES+ab.EXPANDED_FEATURES+ab.REGIME_FEATURES+ids)),
+              'expanded_regime_context_market_id':list(dict.fromkeys(market_features+ids)),
+          }
+          for mode,features in pmodes.items():
+              ev=ab._evaluate_pooled(pooled,features,'target_dir_h12',12)
+              if ev is not None: result['pooled'][mode]=ev
+          material=json.dumps(result,sort_keys=True,separators=(',',':')).encode()
+          result['receipt_sha256']=hashlib.sha256(material).hexdigest()
+          Path('result/quick-h12-feature-ablation.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print('QUICK_H12_FEATURE_ABLATION=PASS')
+          print('RECEIPT_SHA256='+result['receipt_sha256'])
+          PY
+
+      - name: Upload metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-h12-feature-ablation-results
+          path: result/quick-h12-feature-ablation.json
+          if-no-files-found: error
+          retention-days: 14
