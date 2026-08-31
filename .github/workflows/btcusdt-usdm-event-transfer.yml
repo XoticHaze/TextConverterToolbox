@@ -1,0 +1,56 @@
+name: btcusdt-usdm-event-transfer
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout research harness
+        uses: actions/checkout@v4
+
+      - name: Download and verify fixed BTCUSDT USD-M monthly corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p btcdata
+          base='https://data.binance.vision/data/futures/um/monthly/klines/BTCUSDT/1m'
+          for year in 2020 2021 2022 2023 2024 2025; do
+            for month in $(seq -w 1 12); do
+              name="BTCUSDT-1m-${year}-${month}.zip"
+              curl --fail --location --retry 4 --silent --show-error \
+                "${base}/${name}" -o "btcdata/${name}"
+              curl --fail --location --retry 4 --silent --show-error \
+                "${base}/${name}.CHECKSUM" -o "btcdata/${name}.CHECKSUM"
+              expected=$(awk '{print $1}' "btcdata/${name}.CHECKSUM")
+              actual=$(sha256sum "btcdata/${name}" | awk '{print $1}')
+              test "$actual" = "$expected"
+            done
+          done
+          test "$(find btcdata -name 'BTCUSDT-1m-*.zip' | wc -l)" -eq 72
+
+      - name: Install bounded dependencies
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+
+      - name: Execute untouched external-market falsification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research.btcusdt_usdm_event_transfer \
+            --zip-root btcdata \
+            --output result/btcusdt-usdm-event-transfer.json
+
+      - name: Upload metrics and source manifest only
+        uses: actions/upload-artifact@v4
+        with:
+          name: btcusdt-usdm-event-transfer-results
+          path: result/btcusdt-usdm-event-transfer.json
+          if-no-files-found: error
+          retention-days: 14
