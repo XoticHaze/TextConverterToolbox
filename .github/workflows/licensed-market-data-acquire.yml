@@ -1,0 +1,49 @@
+name: licensed-market-data-acquire
+
+on:
+  push:
+    branches:
+      - assistant/market-data-compute-r1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acquire-es:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Acquire licensed ES dated-contract dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://www.kaggle.com/api/v1/datasets/view/choweric/cme-es' \
+            -o artifact/metadata.json
+          python - <<'PY'
+          import json
+          d=json.load(open('artifact/metadata.json', encoding='utf-8'))
+          text=json.dumps(d, sort_keys=True)
+          if 'CC BY-SA 4.0' not in text:
+              raise SystemExit('expected CC BY-SA 4.0 metadata not observed')
+          print('KAGGLE_METADATA_LICENSE=PASS')
+          print('KAGGLE_DATASET_VERSION=' + str(d.get('currentVersionNumber') or d.get('versionNumber') or 'unknown'))
+          PY
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://www.kaggle.com/api/v1/datasets/download/choweric/cme-es' \
+            -o artifact/choweric-cme-es.zip
+          test -s artifact/choweric-cme-es.zip
+          unzip -t artifact/choweric-cme-es.zip >/dev/null
+          sha256sum artifact/choweric-cme-es.zip | tee artifact/SHA256SUMS
+          wc -c artifact/choweric-cme-es.zip | tee artifact/BYTES
+          echo 'LICENSED_MARKET_DATA_ACQUIRE=PASS'
+
+      - name: Upload acquisition artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: licensed-choweric-cme-es
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 7
