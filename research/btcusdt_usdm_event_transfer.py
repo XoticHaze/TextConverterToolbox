@@ -19,7 +19,7 @@ CONFIGS = {
     "h24_bar05": (24, 0.5),
     "h24_bar10": (24, 1.0),
 }
-BINANCE_DOWNLOADER_COMMIT = "5c7f3197591c0d54d85dc43066226bc4c671d47a"
+BINANCE_REFERENCE_COMMIT = "5c7f3197591c0d54d85dc43066226bc4c671d47a"
 EXPECTED_START = pd.Timestamp("2020-01-01", tz="UTC")
 EXPECTED_END_MIN = pd.Timestamp("2025-12-01", tz="UTC")
 
@@ -107,7 +107,7 @@ def evaluate_config(work: pd.DataFrame, horizon: int, mult: float, features: lis
                 continue
             y_train = train["target"].astype(int).to_numpy()
             y_test = test["target"].astype(int).to_numpy()
-            if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
+            if len(np.unique(y_train)) < 2:
                 continue
             fitted = model().fit(train[features].to_numpy(float), y_train)
             pred = fitted.predict(test[features].to_numpy(float)).astype(int)
@@ -125,6 +125,8 @@ def evaluate_config(work: pd.DataFrame, horizon: int, mult: float, features: lis
                 "directional_signals": int(len(r)),
                 "mean_net_after_2bp": qmean,
                 "classification": classification(y_test, pred),
+                "observed_train_classes": sorted(int(c) for c in np.unique(y_train)),
+                "observed_test_classes": sorted(int(c) for c in np.unique(y_test)),
             })
         if len(quarter_rows) < 8:
             raise RuntimeError(f"phase {phase}: insufficient outer quarters {len(quarter_rows)}")
@@ -164,14 +166,14 @@ def main() -> int:
         "research_only": True,
         "promotion_authority": False,
         "source": "Binance public USD-M BTCUSDT perpetual monthly 1m klines",
-        "source_downloader_commit": BINANCE_DOWNLOADER_COMMIT,
+        "source_reference_commit": BINANCE_REFERENCE_COMMIT,
         "source_monthly_archives": len(hashes),
         "source_archive_manifest_sha256": hashlib.sha256(archive_manifest).hexdigest(),
         "source_first_timestamp": minutes["timestamp"].iloc[0].isoformat(),
         "source_last_timestamp": minutes["timestamp"].iloc[-1].isoformat(),
         "source_minute_rows": int(len(minutes)),
         "bars_12m": int(len(bars)),
-        "protocol": "external-market falsification fixed before BTC results: H24 0.5x/1.0x causal-volatility triple-barrier event architectures selected from MNQ research, four fixed non-overlap phase streams, quarterly expanding past-only refit from 2020 history, 2022-2025 outer quarters, 2bp/event sensitivity, no BTC-based target selection",
+        "protocol": "external-market falsification fixed before BTC results: H24 0.5x/1.0x causal-volatility triple-barrier event architectures selected from MNQ research, four fixed non-overlap phase streams, quarterly expanding past-only refit from 2020 history, 2022-2025 outer quarters, 2bp/event sensitivity, no BTC-based target selection; single-class future quarters retained",
         "excluded_forward_aligned_features": ["chikou_span"],
         "configs": results,
     }
