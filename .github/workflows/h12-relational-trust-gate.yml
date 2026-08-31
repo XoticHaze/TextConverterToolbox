@@ -30,11 +30,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m research.h12_relational_trust_gate --source-root axb --output result/h12-relational-trust-gate.json
+          python -m research.h12_relational_trust_gate_v2 --source-root axb --output result/h12-relational-trust-gate-v2.json
       - name: Upload metrics only
         uses: actions/upload-artifact@v4
         with:
-          name: h12-relational-trust-gate-results
-          path: result/h12-relational-trust-gate.json
+          name: h12-relational-trust-gate-v2-results
+          path: result/h12-relational-trust-gate-v2.json
           if-no-files-found: error
           retention-days: 14
