@@ -1,0 +1,165 @@
+name: h12-meta-regime-gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Fetch exact research harness and pinned market source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p research result
+          curl --fail --location \
+            'https://raw.githubusercontent.com/XoticHaze/TextConverterToolbox/7842891b1fb1c598fc762a6ea222745dd08ed717/research/expanded_regime_ablation.py' \
+            -o research/expanded_regime_ablation.py
+          git clone --filter=blob:none https://github.com/axb0306/cme-futures-ohlc.git axb
+          git -C axb checkout --detach 60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264
+          test "$(git -C axb rev-parse HEAD)" = "60abd3fb6369c6ce0b6a4a65b0f2562fc96b1264"
+
+      - name: Install bounded dependencies
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+
+      - name: Execute OOF trust-gate experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import glob, importlib.util, json, hashlib
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+          from sklearn.ensemble import HistGradientBoostingClassifier
+          from sklearn.linear_model import LogisticRegression
+          from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score, roc_auc_score, brier_score_loss
+          from sklearn.pipeline import Pipeline
+          from sklearn.preprocessing import StandardScaler
+
+          spec=importlib.util.spec_from_file_location('ab','research/expanded_regime_ablation.py')
+          ab=importlib.util.module_from_spec(spec); spec.loader.exec_module(ab)
+
+          frames={}
+          for root in ab.ROOTS:
+              matches=glob.glob(f'axb/{root}/{root}_1min_*.csv')
+              if len(matches)!=1: raise SystemExit(f'{root} source mismatch: {matches}')
+              frames[root]=ab._add_features(ab._build_bars(Path(matches[0]),root))
+          ctx=ab._contextualize(frames)
+
+          gate_core=list(dict.fromkeys([
+              *ab.REGIME_FEATURES,
+              'vol_ratio_12_120','atr14_pct','atr28_pct','z_volume_120','z_close_20','z_close_60',
+              'ema20_50_spread','ema50_200_spread','efficiency_30','ret_skew_60','ret_autocorr_60',
+              'bb20_width','bb20_pos','donchian55_pos','mfi_14','rsi_14','vwap_dist_pct',
+              'hour_sin','hour_cos','dow_sin','dow_cos',
+              *ctx,
+          ]))
+
+          def metric(y,p):
+              return {'accuracy':float(accuracy_score(y,p)), 'balanced_accuracy':float(balanced_accuracy_score(y,p)),
+                      'macro_f1':float(f1_score(y,p,average='macro',zero_division=0))}
+
+          def base_model():
+              return Pipeline([('scale',StandardScaler()),('model',LogisticRegression(max_iter=2500,class_weight='balanced',random_state=42))])
+
+          def gate_models():
+              return {
+                  'logistic_gate': Pipeline([('scale',StandardScaler()),('model',LogisticRegression(max_iter=2500,class_weight='balanced',random_state=43))]),
+                  'hist_gradient_gate': HistGradientBoostingClassifier(max_iter=180,learning_rate=0.05,max_leaf_nodes=15,min_samples_leaf=30,l2_regularization=2.0,random_state=43),
+              }
+
+          def gate_views(y_true, base_pred, correct, prob, train_prob):
+              out={'base':metric(y_true,base_pred)}
+              try: out['gate_correctness_auc']=float(roc_auc_score(correct,prob))
+              except Exception: out['gate_correctness_auc']=None
+              out['gate_brier']=float(brier_score_loss(correct,prob))
+              cuts={f'q{q}':float(np.quantile(train_prob,q/100.0)) for q in (50,65,75,85)}
+              out['high_confidence']={}
+              for name,cut in cuts.items():
+                  mask=prob>=cut
+                  if int(mask.sum())<50: continue
+                  out['high_confidence'][name]={'cut':cut,'rows':int(mask.sum()),'coverage':float(mask.mean()),**metric(y_true[mask],base_pred[mask])}
+              low_cut=float(np.quantile(train_prob,0.25)); low=prob<=low_cut
+              if int(low.sum())>=50:
+                  inv=1-base_pred[low]
+                  out['low_confidence_inverted']={'cut':low_cut,'rows':int(low.sum()),'coverage':float(low.mean()),**metric(y_true[low],inv)}
+              return out
+
+          result={'schema':'foundry.h12_meta_regime_gate.v1','research_only':True,'promotion_authority':False,
+                  'source_commit':ab.SOURCE_COMMIT,'base_feature_contract':'baseline20','target':'target_dir_h12',
+                  'gate_features':gate_core+['base_confidence','base_pred'],'markets':{},'pooled':{}}
+          pooled_meta=[]; pooled_hold=[]
+
+          for root,frame in frames.items():
+              cols=list(dict.fromkeys([*ab.BASE_FEATURES,*gate_core,'target_dir_h12']))
+              work=frame[['timestamp',*cols]].dropna().reset_index(drop=True)
+              folds=ab._row_folds(len(work),12)
+              Xb=work[ab.BASE_FEATURES].to_numpy(float); y=work['target_dir_h12'].astype(int).to_numpy()
+              meta_parts=[]
+              for fold,(s,e,ts,te) in enumerate(folds[:3]):
+                  bm=base_model().fit(Xb[s:e],y[s:e])
+                  pred=bm.predict(Xb[ts:te]).astype(int)
+                  prob_up=bm.predict_proba(Xb[ts:te])[:,1]
+                  part=work.iloc[ts:te][['timestamp',*gate_core]].copy()
+                  part['base_pred']=pred
+                  part['base_confidence']=np.abs(prob_up-0.5)*2.0
+                  part['correct']=(pred==y[ts:te]).astype(int)
+                  part['truth']=y[ts:te]
+                  part['market']=root
+                  meta_parts.append(part)
+              meta=pd.concat(meta_parts,ignore_index=True)
+              _,train_end,test_start,test_end=folds[3]
+              bm=base_model().fit(Xb[:train_end],y[:train_end])
+              hp=bm.predict(Xb[test_start:test_end]).astype(int)
+              hup=bm.predict_proba(Xb[test_start:test_end])[:,1]
+              hold=work.iloc[test_start:test_end][['timestamp',*gate_core]].copy()
+              hold['base_pred']=hp; hold['base_confidence']=np.abs(hup-0.5)*2.0
+              hold['correct']=(hp==y[test_start:test_end]).astype(int); hold['truth']=y[test_start:test_end]; hold['market']=root
+              gate_cols=[*gate_core,'base_confidence','base_pred']
+              market_result={'meta_rows':int(len(meta)),'holdout_rows':int(len(hold)),'gates':{}}
+              for gname,gm in gate_models().items():
+                  gm.fit(meta[gate_cols].to_numpy(float),meta['correct'].to_numpy(int))
+                  train_prob=gm.predict_proba(meta[gate_cols].to_numpy(float))[:,1]
+                  hprob=gm.predict_proba(hold[gate_cols].to_numpy(float))[:,1]
+                  market_result['gates'][gname]=gate_views(hold['truth'].to_numpy(int),hold['base_pred'].to_numpy(int),hold['correct'].to_numpy(int),hprob,train_prob)
+              result['markets'][root]=market_result
+              pooled_meta.append(meta); pooled_hold.append(hold)
+              print(root, {g:round(v.get('gate_correctness_auc') or 0,4) for g,v in market_result['gates'].items()})
+
+          meta=pd.concat(pooled_meta,ignore_index=True); hold=pd.concat(pooled_hold,ignore_index=True)
+          ids=[]
+          for root in ab.ROOTS:
+              c=f'market_{root}'; ids.append(c); meta[c]=(meta['market']==root).astype(float); hold[c]=(hold['market']==root).astype(float)
+          gate_cols=[*gate_core,'base_confidence','base_pred',*ids]
+          pooled_result={'meta_rows':int(len(meta)),'holdout_rows':int(len(hold)),'gates':{}}
+          for gname,gm in gate_models().items():
+              gm.fit(meta[gate_cols].to_numpy(float),meta['correct'].to_numpy(int))
+              train_prob=gm.predict_proba(meta[gate_cols].to_numpy(float))[:,1]
+              hprob=gm.predict_proba(hold[gate_cols].to_numpy(float))[:,1]
+              pooled_result['gates'][gname]=gate_views(hold['truth'].to_numpy(int),hold['base_pred'].to_numpy(int),hold['correct'].to_numpy(int),hprob,train_prob)
+              per_market={}
+              for root in ab.ROOTS:
+                  mask=(hold['market'].to_numpy()==root)
+                  per_market[root]=gate_views(hold.loc[mask,'truth'].to_numpy(int),hold.loc[mask,'base_pred'].to_numpy(int),hold.loc[mask,'correct'].to_numpy(int),hprob[mask],train_prob)
+              pooled_result['gates'][gname]['per_market']=per_market
+          result['pooled']=pooled_result
+          material=json.dumps(result,sort_keys=True,separators=(',',':')).encode(); result['receipt_sha256']=hashlib.sha256(material).hexdigest()
+          Path('result/h12-meta-regime-gate.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print('H12_META_REGIME_GATE=PASS')
+          print('RECEIPT_SHA256='+result['receipt_sha256'])
+          PY
+
+      - name: Upload metrics only
+        uses: actions/upload-artifact@v4
+        with:
+          name: h12-meta-regime-gate-results
+          path: result/h12-meta-regime-gate.json
+          if-no-files-found: error
+          retention-days: 14
