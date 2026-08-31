@@ -41,7 +41,6 @@ def build_events(work: pd.DataFrame, horizon: int, mult: float, phase: int, feat
     high = work["high"].to_numpy(float)
     low = work["low"].to_numpy(float)
     rv = work["rv_120"].to_numpy(float)
-    ts = work["timestamp"].to_numpy()
 
     for i in range(len(work) - horizon):
         if slots[i] % horizon != phase:
@@ -181,7 +180,9 @@ def main() -> int:
                     continue
                 y_train = train["target"].astype(int).to_numpy()
                 y_test = test["target"].astype(int).to_numpy()
-                if len(np.unique(y_train)) < 3 or len(np.unique(y_test)) < 2:
+                # Tight barriers can legitimately collapse to a binary up/down target.
+                # Only a single observed training class is unusable.
+                if len(np.unique(y_train)) < 2 or len(np.unique(y_test)) < 2:
                     continue
                 fitted = model().fit(train[features].to_numpy(float), y_train)
                 pred = fitted.predict(test[features].to_numpy(float)).astype(int)
@@ -200,6 +201,7 @@ def main() -> int:
                     "classification": classification(y_test, pred),
                     "mean_net_after_2bp": qmean,
                     "target_counts": {str(c): int(np.sum(y_test == c)) for c in (-1, 0, 1)},
+                    "observed_train_classes": sorted(int(c) for c in np.unique(y_train)),
                     "ambiguous_events": int(test["ambiguous_same_bar"].sum()),
                 })
 
@@ -223,7 +225,7 @@ def main() -> int:
         "config_key": args.config_key,
         "horizon": horizon,
         "barrier_multiplier": mult,
-        "protocol": "four predeclared absolute-UTC phase streams; event starts separated by full horizon; phase-specific models train only on prior completed non-overlapping events; symmetric causal rv_120 barriers with 2bp floor; first barrier wins; same-bar dual hit is fail-closed as directional loss; expiry exits at horizon close; current quarter never used for model selection",
+        "protocol": "four predeclared absolute-UTC phase streams; event starts separated by full horizon; phase-specific models train only on prior completed non-overlapping events; symmetric causal rv_120 barriers with 2bp floor; binary or ternary observed targets are valid; first barrier wins; same-bar dual hit is fail-closed as directional loss; expiry exits at horizon close; current quarter never used for model selection",
         "execution_cost_per_event": EXECUTION_COST,
         "excluded_forward_aligned_features": ["chikou_span"],
         "feature_sets": result_features,
