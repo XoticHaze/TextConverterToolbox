@@ -49,7 +49,7 @@ def read_binance_zip(path: Path) -> pd.DataFrame:
         open_time = open_time.astype("int64")
     median = float(np.median(open_time.to_numpy(float)))
     unit = "us" if median > 1e14 else "ms"
-    out = pd.DataFrame({
+    return pd.DataFrame({
         "timestamp": pd.to_datetime(open_time.astype("int64"), unit=unit, utc=True),
         "open": pd.to_numeric(f.iloc[:, 1], errors="raise"),
         "high": pd.to_numeric(f.iloc[:, 2], errors="raise"),
@@ -57,15 +57,13 @@ def read_binance_zip(path: Path) -> pd.DataFrame:
         "close": pd.to_numeric(f.iloc[:, 4], errors="raise"),
         "volume": pd.to_numeric(f.iloc[:, 5], errors="raise"),
     })
-    return out
 
 
 def load_monthlies(root: Path) -> tuple[pd.DataFrame, dict[str, str]]:
     files = sorted(root.rglob("BTCUSDT-1m-*.zip"))
     if len(files) < 60:
         raise RuntimeError(f"insufficient BTCUSDT monthly archives: {len(files)}")
-    hashes = {}
-    parts = []
+    hashes, parts = {}, []
     for path in files:
         hashes[path.name] = sha256_file(path)
         parts.append(read_binance_zip(path))
@@ -87,6 +85,11 @@ def bars_12m(minutes: pd.DataFrame) -> pd.DataFrame:
     return b
 
 
+def utc_slot_ns(ts: pd.Series) -> np.ndarray:
+    normalized = pd.to_datetime(ts, utc=True).dt.as_unit("ns")
+    return (normalized.astype("int64").to_numpy() // BAR_NS).astype(np.int64)
+
+
 def outer_quarters() -> list[pd.Timestamp]:
     return list(pd.date_range("2022-01-01", "2026-01-01", freq="QS", tz="UTC"))
 
@@ -95,6 +98,8 @@ def evaluate_config(work: pd.DataFrame, horizon: int, mult: float, features: lis
     phase_nodes = {}
     for phase in phases(horizon):
         events = build_events(work, horizon, mult, phase, features)
+        if events.empty:
+            raise RuntimeError(f"phase {phase}: zero events after normalized UTC slot construction")
         returns: list[float] = []
         quarter_net: list[float] = []
         quarter_rows = []
@@ -143,23 +148,23 @@ def main() -> int:
     ap.add_argument("--zip-root", type=Path, required=True)
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
-
     minutes, hashes = load_monthlies(args.zip_root)
     bars = bars_12m(minutes)
     frame = _add_features(bars)
     expanded = list(dict.fromkeys(BASE_FEATURES + EXPANDED_FEATURES + REGIME_FEATURES))
     cols = list(dict.fromkeys(["timestamp", "high", "low", "close", "rv_120", *expanded]))
     work = frame[cols].replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
-    work["utc_slot"] = (work["timestamp"].astype("int64").to_numpy() // BAR_NS).astype(np.int64)
+    work["utc_slot"] = utc_slot_ns(work["timestamp"])
+    residues = sorted(set((work["utc_slot"].to_numpy(np.int64) % 24).tolist()))
+    if residues != list(range(24)):
+        raise RuntimeError(f"BTC 12-minute UTC slot residues incomplete: {residues}")
     feature_sets = {"baseline20": list(BASE_FEATURES), "expanded_regime": expanded}
-
     results = {}
     for key, (horizon, mult) in CONFIGS.items():
         results[key] = {"horizon": horizon, "barrier_multiplier": mult, "feature_sets": {}}
         for name, features in feature_sets.items():
             results[key]["feature_sets"][name] = evaluate_config(work, horizon, mult, features)
             print(key, name, "DONE")
-
     archive_manifest = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()
     result = {
         "schema": "foundry.btcusdt_usdm_event_transfer.v1",
@@ -173,7 +178,8 @@ def main() -> int:
         "source_last_timestamp": minutes["timestamp"].iloc[-1].isoformat(),
         "source_minute_rows": int(len(minutes)),
         "bars_12m": int(len(bars)),
-        "protocol": "external-market falsification fixed before BTC results: H24 0.5x/1.0x causal-volatility triple-barrier event architectures selected from MNQ research, four fixed non-overlap phase streams, quarterly expanding past-only refit from 2020 history, 2022-2025 outer quarters, 2bp/event sensitivity, no BTC-based target selection; single-class future quarters retained",
+        "utc_slot_residues": residues,
+        "protocol": "external-market falsification fixed before BTC results: H24 0.5x/1.0x causal-volatility triple-barrier event architectures selected from MNQ research, four fixed non-overlap phase streams, quarterly expanding past-only refit from 2020 history, 2022-2025 outer quarters, 2bp/event sensitivity, no BTC-based target selection; timestamps normalized explicitly to nanoseconds before absolute 12-minute UTC slot construction; single-class future quarters retained",
         "excluded_forward_aligned_features": ["chikou_span"],
         "configs": results,
     }
