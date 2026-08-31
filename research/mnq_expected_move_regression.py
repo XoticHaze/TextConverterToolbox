@@ -23,6 +23,10 @@ CONFIGS = {"h12_vol10": (12, 1.0), "h24_vol05": (24, 0.5)}
 TEST_START = pd.Timestamp("2023-07-01", tz="UTC")
 TEST_END = pd.Timestamp("2026-01-01", tz="UTC")
 REGRESSORS = ("ridge", "hist_gradient_regressor")
+POLICY_KEY = {
+    "ridge": "ridge_expected_move",
+    "hist_gradient_regressor": "hist_gradient_expected_move",
+}
 POLICIES = ("classification_logistic", "ridge_expected_move", "hist_gradient_expected_move")
 POINT_COSTS = (0.5, 1.0, 2.0, 4.0)
 OOF_MAGNITUDE_QUANTILE = 0.50
@@ -123,9 +127,6 @@ def main() -> int:
     cls_target, _, _ = target_columns(work, horizon, vol_mult)
     work["class_target"] = cls_target
     work["point_move"] = work["close"].shift(-horizon) - work["close"]
-    # Normalize the economic target by causal local volatility so one model can
-    # span different MNQ price/volatility eras. The prediction is converted back
-    # to points at the current row before economic scoring.
     scale_points = work["close"].astype(float) * work["rv_120"].astype(float) * math.sqrt(horizon)
     work["target_move_z"] = work["point_move"] / scale_points.replace(0, np.nan)
     work["scale_points"] = scale_points
@@ -164,9 +165,10 @@ def main() -> int:
             pred_z = fitted.predict(x_test)
             pred_points = pred_z * test["scale_points"].to_numpy(float)
             signal = np.where(np.abs(pred_z) >= threshold, np.sign(pred_z), 0).astype(int)
-            quarter_preds[name + "_expected_move"] = signal
+            quarter_preds[POLICY_KEY[name]] = signal
             reg_receipts[name] = {
                 **oof,
+                "policy_key": POLICY_KEY[name],
                 "test_predicted_point_move_mean": float(np.mean(pred_points)),
                 "test_predicted_point_move_median": float(np.median(pred_points)),
                 "test_signal_coverage": float(np.mean(signal != 0)),
@@ -179,7 +181,6 @@ def main() -> int:
             "regressors": reg_receipts,
         })
 
-        # Use exact future-row positions; each week is evaluated by every fixed UTC phase.
         test = test.copy()
         test["_pos"] = np.arange(len(test))
         for week_key, g in test.groupby("trade_week", sort=True):
