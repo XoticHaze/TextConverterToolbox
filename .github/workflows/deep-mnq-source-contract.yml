@@ -1,0 +1,26 @@
+name: Deep MNQ source contract
+
+on:
+  pull_request:
+    paths:
+      - 'research/deep_mnq_source_contract.py'
+      - 'research/mnq_expected_move_forward_2026_timefixed.py'
+      - 'research/mnq_h24_mae_risk_timefixed.py'
+      - 'research/mnq_h24_source_parity_timefixed.py'
+      - 'tests/test_deep_mnq_source_contract.py'
+      - '.github/workflows/deep-mnq-source-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  timestamp-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install focused test dependencies
+        run: python -m pip install --disable-pip-version-check pandas pytest tzdata
+      - name: Run deep-source timestamp contract regression
+        run: python -m pytest -q tests/test_deep_mnq_source_contract.py
