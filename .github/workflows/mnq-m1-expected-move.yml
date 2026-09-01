@@ -7,6 +7,7 @@ on:
       - 'research/mnq_m1_expected_move.py'
       - 'research/mnq_m1_expected_move_contract_20260901.json'
       - 'research/deep_mnq_source_contract.py'
+      - 'research/mnq_external_transfer_validation.py'
       - '.github/workflows/mnq-m1-expected-move.yml'
   workflow_dispatch:
 
@@ -32,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m json.tool research/mnq_m1_expected_move_contract_20260901.json >/dev/null
-          python -m py_compile research/mnq_m1_expected_move.py research/deep_mnq_source_contract.py
+          python -m py_compile research/mnq_m1_expected_move.py research/deep_mnq_source_contract.py research/mnq_external_transfer_validation.py
           python - <<'PY'
           import json
           from pathlib import Path
