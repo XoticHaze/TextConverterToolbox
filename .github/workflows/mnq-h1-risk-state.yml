@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'research/mnq_h1_risk_state.py'
+      - 'research/mnq_h1_risk_state_timefixed.py'
+      - 'research/deep_mnq_source_contract.py'
       - 'research/mnq_h1_risk_state_contract_20260901.json'
       - '.github/workflows/mnq-h1-risk-state.yml'
   workflow_dispatch:
@@ -22,12 +24,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Validate frozen contract and source
+      - name: Validate frozen contract and corrected source wrapper
         shell: bash
         run: |
           set -euo pipefail
           python -m json.tool research/mnq_h1_risk_state_contract_20260901.json >/dev/null
-          python -m py_compile research/mnq_h1_risk_state.py
+          python -m py_compile \
+            research/mnq_h1_risk_state.py \
+            research/mnq_h1_risk_state_timefixed.py \
+            research/deep_mnq_source_contract.py
           python - <<'PY'
           import json
           from pathlib import Path
@@ -56,24 +61,41 @@ jobs:
           test "$(git -C vendor/MNQ_DATA rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
           echo 'DEEP_MNQ_PIN=PASS'
 
-      - name: Execute frozen 1H risk-state specialists
+      - name: Execute frozen 1H risk-state specialists with corrected timestamps
         shell: bash
         run: |
           set -uo pipefail
           mkdir -p artifacts/h1-risk-state
-          python -m research.mnq_h1_risk_state \
+          python -m research.mnq_h1_risk_state_timefixed \
             --deep-root vendor/MNQ_DATA/plaintext_csv \
             --output artifacts/h1-risk-state/receipt.json \
             2>&1 | tee artifacts/h1-risk-state/run.log
           rc=${PIPESTATUS[0]}
-          echo "H1_RISK_STATE_EXIT_CODE=$rc" | tee -a artifacts/h1-risk-state/run.log
+          echo "H1_RISK_STATE_TIMEFIXED_EXIT_CODE=$rc" | tee -a artifacts/h1-risk-state/run.log
           exit "$rc"
+
+      - name: Verify corrected timestamp provenance
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('artifacts/h1-risk-state/receipt.json').read_text())
+          assert d['timestamp_correction_generation'] == 'timefixed_r1'
+          c=d['deep_timestamp_contract']
+          assert c['source_timestamp_timezone'] == 'America/New_York'
+          assert c['source_bar_label'] == 'right_close'
+          assert c['normalized_timestamp'] == 'UTC bar start'
+          print('H1_RISK_TIMEFIXED_PROVENANCE=PASS')
+          PY
 
       - name: Upload risk-state receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mnq-h1-risk-state
+          name: mnq-h1-risk-state-timefixed
           path: |
             artifacts/h1-risk-state/receipt.json
             artifacts/h1-risk-state/run.log
