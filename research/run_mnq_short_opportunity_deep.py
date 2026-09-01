@@ -11,7 +11,8 @@ import pandas as pd
 
 from research.expanded_regime_ablation import BASE_FEATURES, EXPANDED_FEATURES, REGIME_FEATURES, _add_features
 from research.mnq_external_transfer_validation import load_deep, deep_roll_schedule, stitch_deep, deep_bars
-from research.mnq_short_opportunity_oos import ShortOOSSpec, evaluate_short_challengers
+from research.mnq_short_opportunity_oos import ShortOOSSpec
+from research.mnq_short_opportunity_oos_batched import evaluate_short_challengers_batched
 from research.mnq_short_opportunity_targets import ShortOpportunitySpec, materialize_short_opportunity_targets
 
 
@@ -20,7 +21,7 @@ def economic_matrix(pred: pd.DataFrame) -> list[dict[str, object]]:
 
     Threshold and point-cost choices do not alter training data or probabilities, so
     fitting the three challengers once is economically identical to refitting them for
-    every threshold/cost cell and avoids 12x redundant model training.
+    every threshold/cost cell and avoids redundant model training.
     """
     panels: list[dict[str, object]] = []
     if pred.empty:
@@ -61,9 +62,10 @@ def main() -> int:
     cols = ["timestamp", *features, "short_label", "short_forward_points", "target_resolution_row"]
     work = work[cols].replace([np.inf, -np.inf], np.nan).dropna(subset=features).reset_index(drop=True)
 
-    # Fit each causal challenger only once. Use the lowest matrix threshold and zero
-    # scoring cost so every probability/gross outcome needed by later rescoring is kept.
-    pred, _ = evaluate_short_challengers(
+    # Exact same frozen OOS fit contract as the original evaluator. The batched
+    # implementation changes only how eligibility bookkeeping and inference are
+    # executed between the unchanged 1,000-row refits.
+    pred, _ = evaluate_short_challengers_batched(
         work,
         features,
         ShortOOSSpec(min_train_rows=5000, retrain_every=1000, probability_threshold=0.50, point_cost=0.0),
@@ -79,6 +81,13 @@ def main() -> int:
         "bars": len(work),
         "first_timestamp": work["timestamp"].iloc[0].isoformat(),
         "last_timestamp": work["timestamp"].iloc[-1].isoformat(),
+        "evaluator": "batched_semantics_preserving_r1",
+        "fit_contract": {
+            "min_train_rows": 5000,
+            "retrain_every": 1000,
+            "probability_stream_floor": 0.50,
+            "fit_scoring_cost": 0.0
+        },
         "panels": panels,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
