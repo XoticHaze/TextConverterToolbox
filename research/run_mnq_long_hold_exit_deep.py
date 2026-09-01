@@ -19,28 +19,50 @@ from research.mnq_long_hold_exit_oos import HoldExitOOSSpec, chronological_long_
 from research.mnq_long_hold_exit_targets import LongHoldExitSpec, materialize_long_hold_exit_targets
 
 
+def _edge_summary(group: pd.DataFrame) -> dict[str, object]:
+    learned = group["learned_realized_points"].to_numpy(dtype=float)
+    fixed = group["fixed_horizon_realized_points"].to_numpy(dtype=float)
+    trailing = group["trailing_realized_points"].to_numpy(dtype=float)
+    atr = group["atr_trailing_realized_points"].to_numpy(dtype=float)
+    return {
+        "rows": int(len(group)),
+        "hold_fraction": float((group["learned_action"] == "HOLD").mean()),
+        "learned_mean_points": float(np.mean(learned)),
+        "fixed_mean_points": float(np.mean(fixed)),
+        "trailing_mean_points": float(np.mean(trailing)),
+        "atr_trailing_mean_points": float(np.mean(atr)),
+        "learned_minus_fixed_mean_points": float(np.mean(learned - fixed)),
+        "learned_minus_trailing_mean_points": float(np.mean(learned - trailing)),
+        "learned_minus_atr_trailing_mean_points": float(np.mean(learned - atr)),
+    }
+
+
 def _year_decomposition(panel: pd.DataFrame) -> list[dict[str, object]]:
-    """Expose temporal concentration of the learned edge without changing selection."""
     work = panel.copy()
     work["oos_year"] = pd.to_datetime(work["timestamp"], utc=True).dt.year
     rows: list[dict[str, object]] = []
     for year, group in work.groupby("oos_year", sort=True):
-        learned = group["learned_realized_points"].to_numpy(dtype=float)
-        fixed = group["fixed_horizon_realized_points"].to_numpy(dtype=float)
-        trailing = group["trailing_realized_points"].to_numpy(dtype=float)
-        atr = group["atr_trailing_realized_points"].to_numpy(dtype=float)
-        rows.append({
-            "year": int(year),
-            "rows": int(len(group)),
-            "hold_fraction": float((group["learned_action"] == "HOLD").mean()),
-            "learned_mean_points": float(np.mean(learned)),
-            "fixed_mean_points": float(np.mean(fixed)),
-            "trailing_mean_points": float(np.mean(trailing)),
-            "atr_trailing_mean_points": float(np.mean(atr)),
-            "learned_minus_fixed_mean_points": float(np.mean(learned - fixed)),
-            "learned_minus_trailing_mean_points": float(np.mean(learned - trailing)),
-            "learned_minus_atr_trailing_mean_points": float(np.mean(learned - atr)),
-        })
+        rows.append({"year": int(year), **_edge_summary(group)})
+    return rows
+
+
+def _causal_regime_decomposition(panel: pd.DataFrame, frame: pd.DataFrame) -> list[dict[str, object]]:
+    """Measure the frozen 0.50 policy inside pre-existing decision-time regimes.
+
+    Regime flags are computed by _add_features from information available at each
+    decision bar. This is explanatory evidence only: no regime is selected here.
+    """
+    decision_rows = panel["decision_row"].to_numpy(dtype=int)
+    if len(decision_rows) and (decision_rows.min() < 0 or decision_rows.max() >= len(frame)):
+        raise AssertionError("decision row outside causal feature frame")
+    rows: list[dict[str, object]] = []
+    for regime in REGIME_FEATURES:
+        values = pd.to_numeric(frame[regime], errors="raise").to_numpy(dtype=float)[decision_rows]
+        active = values >= 0.5
+        group = panel.loc[active]
+        if len(group) == 0:
+            continue
+        rows.append({"regime": regime, **_edge_summary(group)})
     return rows
 
 
@@ -102,12 +124,14 @@ def main() -> int:
         }
         if threshold == 0.50:
             result["oos_year_decomposition"] = _year_decomposition(panel)
+            result["causal_regime_decomposition"] = _causal_regime_decomposition(panel, frame)
         results.append(result)
 
     out = {
-        "schema": "foundry.mnq_long_hold_exit_deep_oos.v3",
+        "schema": "foundry.mnq_long_hold_exit_deep_oos.v4",
         "research_only": True,
         "runtime_exit_authority": False,
+        "regime_decomposition_selection_authority": False,
         "horizon_bars": args.horizon,
         "decision_bars": args.decision,
         "refit_interval_rows": args.refit_interval,
