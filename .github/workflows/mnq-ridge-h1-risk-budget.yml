@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'research/mnq_ridge_h1_risk_budget.py'
+      - 'research/mnq_ridge_h1_risk_budget_warmupfixed.py'
       - 'research/mnq_ridge_h1_risk_budget_contract_20260901.json'
       - 'research/mnq_ridge_h1_mae_orchestration.py'
       - 'research/deep_mnq_source_contract.py'
@@ -29,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m json.tool research/mnq_ridge_h1_risk_budget_contract_20260901.json >/dev/null
-          python -m py_compile research/mnq_ridge_h1_risk_budget.py research/mnq_ridge_h1_mae_orchestration.py research/deep_mnq_source_contract.py
+          python -m py_compile research/mnq_ridge_h1_risk_budget.py research/mnq_ridge_h1_risk_budget_warmupfixed.py research/mnq_ridge_h1_mae_orchestration.py research/deep_mnq_source_contract.py
           python - <<'PY'
           import json
           from pathlib import Path
@@ -99,7 +100,7 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p artifacts/risk-budget
-          python -m research.mnq_ridge_h1_risk_budget \
+          python -m research.mnq_ridge_h1_risk_budget_warmupfixed \
             --deep-root vendor/MNQ_DATA/plaintext_csv \
             --risk-prereq-receipt artifacts/prerequisite/h1-risk-timefixed.json \
             --output artifacts/risk-budget/discovery.json \
@@ -107,6 +108,23 @@ jobs:
           rc=${PIPESTATUS[0]}
           echo "RIDGE_H1_RISK_BUDGET_EXIT_CODE=$rc" | tee -a artifacts/risk-budget/discovery.log
           exit "$rc"
+
+      - name: Verify training-warmup availability provenance
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('artifacts/risk-budget/discovery.json').read_text())
+          fits=d['fit_receipts']
+          assert fits
+          assert all(r['warmup_fix_generation'] == 'training_availability_r1' for r in fits)
+          assert all(r['strict_oos_risk_rows'] == r['ridge_test_rows'] for r in fits)
+          assert sum(r['risk_warmup_ridge_train_rows_excluded'] for r in fits) > 0
+          print('RIDGE_H1_RISK_BUDGET_TRAINING_WARMUP_PROVENANCE=PASS')
+          PY
 
       - name: Upload risk-budget and prerequisite receipts
         if: always()
@@ -119,5 +137,6 @@ jobs:
             artifacts/risk-budget/discovery.json
             artifacts/risk-budget/discovery.log
             research/mnq_ridge_h1_risk_budget_contract_20260901.json
+            research/mnq_ridge_h1_risk_budget_warmupfixed.py
           if-no-files-found: warn
           retention-days: 30
