@@ -1,0 +1,42 @@
+{
+  "schema": "foundry.deep_mnq_licensed_gap_fill_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_union_outcome_inspection": true,
+  "primary_source": {
+    "dataset": "mbytes21/MNQ_DATA",
+    "commit": "fc5508e2c152938d6d9eb70a36b888ae26107176",
+    "timestamp_contract": "America/New_York right-close labels normalized to UTC bar start",
+    "authority": "primary wherever a normalized stitched minute exists"
+  },
+  "fill_source": {
+    "dataset": "brandenmorris/mnq-1m-q4-2022-q4-2025-ts-ohlcv-sym",
+    "version": 1,
+    "license": "CC BY 4.0",
+    "zip_sha256": "633eb4338a3aa60aedb542b12085acca29ff237c7cadff65442a638466f37667",
+    "authority": "fill only normalized stitched minutes absent from primary"
+  },
+  "union_rules": [
+    "build each dated-contract continuous stream independently using its existing causal roll authority",
+    "never overwrite a primary timestamp with fill-source data",
+    "never average, interpolate, back-adjust, or modify prices to force parity",
+    "preserve source dataset and source contract per emitted minute",
+    "fail closed on duplicate timestamps within either stitched source",
+    "audit overlap before accepting union",
+    "all downstream model reruns must cite the new union receipt"
+  ],
+  "overlap_gate": {
+    "minimum_same_contract_minutes": 10000,
+    "maximum_median_absolute_close_delta_points": 0.25,
+    "maximum_p99_absolute_close_delta_points": 1.0,
+    "volume_is_diagnostic_not_gate": true
+  },
+  "coverage_gate": {
+    "years": [2022, 2023, 2024, 2025],
+    "maximum_post_union_gap_days_inside_2022_2025": 14,
+    "minimum_q4_12min_bars_for_2023_2025": 5000,
+    "require_material_reduction_of_sep_dec_gap": true
+  },
+  "fallback": "If verified licensed fill leaves a material gap, inspect already-owned MM-IBKR/IBKR history before acquiring another source.",
+  "live_authority": false
+}
