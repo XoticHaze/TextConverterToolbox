@@ -1,0 +1,52 @@
+{
+  "schema": "foundry.mnq_h12_helper_weekly_economics_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_outcome_inspection": true,
+  "objective": "Determine whether a chronology-clean helper can improve the existing H12 MNQ logistic model's real weekly trading economics without score pumping, post-hoc threshold selection, direction inversion, or contemporaneous NQ assistance.",
+  "market": "MNQ",
+  "timeframe": "12Min",
+  "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+  "base_model": {
+    "name": "baseline_logistic",
+    "contract": "baseline20 + StandardScaler + class-balanced LogisticRegression(random_state=42)",
+    "horizon_rows": 12,
+    "vol_multiplier": 1.0
+  },
+  "challengers": {
+    "confidence_trust_q65": "Base direction is retained only when chronology-clean prior inner-OOF base confidence is at or above its q65 cut; otherwise abstain.",
+    "local_state_trust_q65": "A class-balanced logistic correctness helper consumes local MNQ state/regime features plus base prediction/confidence, is trained only on chronology-clean prior inner-OOF base predictions, and may retain or abstain only. It cannot invert or replace direction. Its q65 trust cut is fit only on prior inner-OOF helper probabilities."
+  },
+  "chronology": {
+    "outer_evaluation": "fixed quarterly walk-forward 2023-07 through 2025-12 with H12 purge",
+    "helper_training": "four chronological inner OOF folds inside each outer training set",
+    "forbidden": [
+      "fit helper on in-sample correctness",
+      "use outer OOS outcomes to choose thresholds or features",
+      "use future-derived features",
+      "drop bad weeks, phases, years, or regimes after inspection"
+    ]
+  },
+  "weekly_economic_contract": {
+    "minimum_complete_weeks": 80,
+    "phase_contract": "all non-overlapping UTC H12 phase streams; none selected post-hoc",
+    "round_trip_cost_points": [0.5, 1.0, 2.0, 4.0],
+    "primary_cost_points": [1.0, 2.0],
+    "required_metrics": [
+      "median weekly phase-median net points",
+      "mean weekly phase-median net points",
+      "positive-week fraction",
+      "p10 weekly net points",
+      "bottom-10-percent mean",
+      "worst week",
+      "cumulative weekly phase-median points",
+      "max drawdown of cumulative weekly phase medians",
+      "top-5-positive-week concentration",
+      "paired weekly delta versus baseline",
+      "coverage"
+    ]
+  },
+  "advance_rule": "At both 1-point and 2-point round-trip costs, challenger must have positive paired median delta, paired win fraction above 0.50, positive-week fraction no worse than baseline, p10 no worse than baseline, bottom-10-percent mean no worse than baseline, and max drawdown no worse than baseline. All checks must pass. Failure is a rejection/rework result, not a threshold-tuning invitation.",
+  "nq_boundary": "NQ is reserved for later external/pre-2019 relationship validation only if a helper first passes the frozen MNQ rule. NQ must not train or tune this MNQ helper and must not be used as a contemporaneous score-boosting feature in this experiment.",
+  "live_authority": false
+}
