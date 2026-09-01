@@ -1,0 +1,123 @@
+name: MNQ Ridge plus 1H MAE risk-budget discovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/mnq_ridge_h1_risk_budget.py'
+      - 'research/mnq_ridge_h1_risk_budget_contract_20260901.json'
+      - 'research/mnq_ridge_h1_mae_orchestration.py'
+      - 'research/deep_mnq_source_contract.py'
+      - '.github/workflows/mnq-ridge-h1-risk-budget.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate frozen risk-budget contract and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m json.tool research/mnq_ridge_h1_risk_budget_contract_20260901.json >/dev/null
+          python -m py_compile research/mnq_ridge_h1_risk_budget.py research/mnq_ridge_h1_mae_orchestration.py research/deep_mnq_source_contract.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('research/mnq_ridge_h1_risk_budget_contract_20260901.json').read_text())
+          assert d['created_before_outcome_inspection'] is True
+          assert d['consumer']['name'] == 'inverse_mae_exposure_neutral_budget'
+          assert d['opportunity_policy']['timeframe'] == '12Min'
+          assert d['risk_model']['timeframe'] == '1H'
+          assert d['consumer']['forbidden'][0] == 'binary veto or abstention'
+          assert d['tuning_allowed'] is False
+          assert d['live_authority'] is False
+          print('RIDGE_H1_RISK_BUDGET_FROZEN_CONTRACT=PASS')
+          PY
+
+      - name: Install bounded research dependencies
+        run: python -m pip install --disable-pip-version-check -q numpy pandas scipy scikit-learn tzdata
+
+      - name: Fetch pinned deep MNQ corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vendor/MNQ_DATA
+          git -C vendor/MNQ_DATA init
+          git -C vendor/MNQ_DATA remote add origin https://github.com/mbytes21/MNQ_DATA.git
+          git -C vendor/MNQ_DATA fetch --depth=1 origin fc5508e2c152938d6d9eb70a36b888ae26107176
+          git -C vendor/MNQ_DATA checkout --detach FETCH_HEAD
+          test "$(git -C vendor/MNQ_DATA rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+          echo 'DEEP_MNQ_PIN=PASS'
+
+      - name: Checkout exact timestamp-corrected 1H risk prerequisite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/XoticHaze/TextConverterToolbox.git risk-prereq
+          git -C risk-prereq checkout --detach d2e1e0c4fd80235a76b0969a249f90eeb7b227d1
+          test "$(git -C risk-prereq rev-parse HEAD)" = "d2e1e0c4fd80235a76b0969a249f90eeb7b227d1"
+          grep -q 'python -m research.mnq_h1_risk_state_timefixed' risk-prereq/.github/workflows/mnq-h1-risk-state.yml
+          echo 'H1_RISK_PREREQ_PIN=PASS'
+
+      - name: Execute and verify timestamp-corrected 1H risk prerequisite
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/prerequisite
+          cd risk-prereq
+          python -m research.mnq_h1_risk_state_timefixed \
+            --deep-root ../vendor/MNQ_DATA/plaintext_csv \
+            --output ../artifacts/prerequisite/h1-risk-timefixed.json \
+            2>&1 | tee ../artifacts/prerequisite/h1-risk-timefixed.log
+          rc=${PIPESTATUS[0]}
+          cd ..
+          test "$rc" -eq 0
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('artifacts/prerequisite/h1-risk-timefixed.json').read_text())
+          assert d['timestamp_correction_generation'] == 'timefixed_r1'
+          assert d['deep_timestamp_contract']['source_timestamp_timezone'] == 'America/New_York'
+          assert d['deep_timestamp_contract']['normalized_timestamp'] == 'UTC bar start'
+          for target in ('long_mae_z','short_mae_z','future_rv_z'):
+              assert d['decisions']['4'][target]['action'] == 'advance_to_separate_economic_consumer'
+          print('H1_RISK_TIMEFIXED_PREREQUISITE=PASS')
+          PY
+
+      - name: Execute frozen risk-budget discovery
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/risk-budget
+          python -m research.mnq_ridge_h1_risk_budget \
+            --deep-root vendor/MNQ_DATA/plaintext_csv \
+            --risk-prereq-receipt artifacts/prerequisite/h1-risk-timefixed.json \
+            --output artifacts/risk-budget/discovery.json \
+            2>&1 | tee artifacts/risk-budget/discovery.log
+          rc=${PIPESTATUS[0]}
+          echo "RIDGE_H1_RISK_BUDGET_EXIT_CODE=$rc" | tee -a artifacts/risk-budget/discovery.log
+          exit "$rc"
+
+      - name: Upload risk-budget and prerequisite receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnq-ridge-h1-risk-budget-discovery
+          path: |
+            artifacts/prerequisite/h1-risk-timefixed.json
+            artifacts/prerequisite/h1-risk-timefixed.log
+            artifacts/risk-budget/discovery.json
+            artifacts/risk-budget/discovery.log
+            research/mnq_ridge_h1_risk_budget_contract_20260901.json
+          if-no-files-found: warn
+          retention-days: 30
