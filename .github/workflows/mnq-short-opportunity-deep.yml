@@ -6,6 +6,7 @@ on:
     paths:
       - 'research/mnq_short_opportunity_*.py'
       - 'research/run_mnq_short_opportunity_deep.py'
+      - 'tests/test_mnq_short_opportunity_oos_batched.py'
       - '.github/workflows/mnq-short-opportunity-deep.yml'
 
 permissions:
@@ -26,7 +27,11 @@ jobs:
           test "$(git -C deep rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
           test -f 'deep/plaintext_csv/MNQ 03-20/20191209.Last.csv'
       - name: Install bounded dependencies
-        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn
+        run: python -m pip install --disable-pip-version-check -q pandas numpy scikit-learn pytest
+      - name: Prove batched evaluator parity
+        run: |
+          set -euo pipefail
+          pytest -q tests/test_mnq_short_opportunity_oos_batched.py
       - name: Run short-opportunity OOS panel
         run: |
           set -euo pipefail
