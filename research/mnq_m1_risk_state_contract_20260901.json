@@ -1,0 +1,117 @@
+{
+  "schema": "foundry.mnq_m1_risk_state_contract.v1",
+  "created_before_outcome_inspection": true,
+  "research_only": true,
+  "promotion_authority": false,
+  "live_authority": false,
+  "parent_evidence": {
+    "direct_direction": "rejected",
+    "expected_move_h30_h60": "rejected_as_specified",
+    "expected_move_exact_head": "557566300359273b525a888f54edd12b4110faf5",
+    "interpretation": "1Min return-direction and expected-move roles failed; test a distinct fast path-risk/state role rather than retuning return targets"
+  },
+  "source": {
+    "repository": "mbytes21/MNQ_DATA",
+    "commit": "fc5508e2c152938d6d9eb70a36b888ae26107176",
+    "timestamp_contract": "America/New_York right-close labels -> DST-aware UTC -> subtract one minute -> UTC bar start"
+  },
+  "bar_minutes": 1,
+  "horizons": [12, 24],
+  "horizon_semantics": "future 1Min bars after the current completed 1Min decision bar",
+  "features": [
+    "ret_1",
+    "ret_3",
+    "ret_6",
+    "ret_12",
+    "ret_30",
+    "ret_60",
+    "range_frac",
+    "body_frac",
+    "log_volume",
+    "volume_z_30",
+    "volume_z_120",
+    "rv_30",
+    "rv_120",
+    "rv_390",
+    "ema12_dist",
+    "ema60_dist",
+    "mom_30",
+    "mom_120",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos"
+  ],
+  "targets": {
+    "long_mae_z": "max adverse downside excursion over H bars / (close * causal rv_120 * sqrt(H))",
+    "short_mae_z": "max adverse upside excursion over H bars / (close * causal rv_120 * sqrt(H))",
+    "future_rv_z": "future H-bar realized std of 1Min log returns / causal rv_120"
+  },
+  "models": {
+    "long_mae_z": {
+      "family": "HistGradientBoostingRegressor",
+      "loss": "quantile",
+      "quantile": 0.8,
+      "learning_rate": 0.05,
+      "max_iter": 180,
+      "max_leaf_nodes": 31,
+      "min_samples_leaf": 40,
+      "l2_regularization": 1.0,
+      "random_state": 42
+    },
+    "short_mae_z": {
+      "family": "HistGradientBoostingRegressor",
+      "loss": "quantile",
+      "quantile": 0.8,
+      "learning_rate": 0.05,
+      "max_iter": 180,
+      "max_leaf_nodes": 31,
+      "min_samples_leaf": 40,
+      "l2_regularization": 1.0,
+      "random_state": 42
+    },
+    "future_rv_z": {
+      "family": "HistGradientBoostingRegressor",
+      "loss": "squared_error",
+      "learning_rate": 0.05,
+      "max_iter": 180,
+      "max_leaf_nodes": 31,
+      "min_samples_leaf": 40,
+      "l2_regularization": 1.0,
+      "random_state": 42
+    }
+  },
+  "validation": {
+    "outer": "quarterly expanding chronological OOS",
+    "discovery_start": "2023-01-01T00:00:00Z",
+    "discovery_end_exclusive": "2026-01-01T00:00:00Z",
+    "full_horizon_purge": true,
+    "minimum_training_rows": 150000,
+    "minimum_test_rows": 30000,
+    "prediction_cohorts": "quintile cutpoints learned from training predictions only",
+    "all_horizons_and_targets_reported": true,
+    "post_hoc_horizon_or_target_selection": false
+  },
+  "advancement": {
+    "mae_each_horizon_each_side": {
+      "positive_spearman_quarters_at_least": 10,
+      "median_spearman_at_least": 0.15,
+      "q5_realized_mae_gt_q1_quarters_at_least": 10
+    },
+    "future_rv_each_horizon": {
+      "positive_spearman_quarters_at_least": 10,
+      "median_spearman_at_least": 0.2
+    },
+    "passing_meaning": "risk-state evidence only; any 12Min timing, stop, sizing, admission, or execution consumer requires a separate contract frozen before economics"
+  },
+  "tuning_allowed": false,
+  "forbidden": [
+    "direction or expected-return reinterpretation",
+    "post-outcome model or horizon tuning",
+    "test-set threshold calibration",
+    "binary trade veto or sizing in this experiment",
+    "NQ input or threshold fitting",
+    "StrategySpec/runtime/broker/live authority"
+  ],
+  "nq_boundary": "NQ remains reserved for later independent validation after a specific MNQ fast-risk hypothesis passes and a separate consumer survives discovery"
+}

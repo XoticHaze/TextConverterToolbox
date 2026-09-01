@@ -1,0 +1,56 @@
+{
+  "schema": "foundry.mnq_m1_risk_state_feasibility_amendment.v1",
+  "created_before_repaired_outcome_inspection": true,
+  "research_only": true,
+  "promotion_authority": false,
+  "live_authority": false,
+  "parent_contract": "research/mnq_m1_risk_state_contract_20260901.json",
+  "parent_contract_commit": "f44ab51bb89961e8284b8ea82b21ed0e678293bf",
+  "failed_execution": {
+    "workflow_run": 33539252789,
+    "failure": "insufficient 1Min risk-state quarters for H12: 9",
+    "model_metrics_emitted_before_failure": false,
+    "interpretation": "protocol-feasibility defect, not a model outcome: the frozen 2023-2025 window plus 150000 minimum training rows and 30000 minimum test rows can produce only 9 eligible quarterly folds"
+  },
+  "unchanged": {
+    "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+    "timestamp_contract": "America/New_York right-close labels -> DST-aware UTC -> subtract one minute -> UTC bar start",
+    "bar_minutes": 1,
+    "horizons": [12, 24],
+    "targets": ["long_mae_z", "short_mae_z", "future_rv_z"],
+    "features": "exact parent feature list",
+    "models": "exact parent HistGradientBoosting configurations",
+    "discovery_start": "2023-01-01T00:00:00Z",
+    "discovery_end_exclusive": "2026-01-01T00:00:00Z",
+    "minimum_training_rows": 150000,
+    "minimum_test_rows": 30000,
+    "full_horizon_purge": true,
+    "training_prediction_quintile_cutpoints_only": true,
+    "median_spearman_mae_threshold": 0.15,
+    "median_spearman_future_rv_threshold": 0.20,
+    "post_hoc_horizon_or_target_selection": false,
+    "tuning_allowed": false
+  },
+  "feasibility_correction": {
+    "original_expected_quarters": 12,
+    "original_required_positive_quarters": 10,
+    "original_required_fraction": 0.8333333333333334,
+    "minimum_eligible_quarters": 9,
+    "required_positive_quarters_rule": "ceil(eligible_quarters * 5 / 6)",
+    "required_q5_gt_q1_quarters_rule": "ceil(eligible_quarters * 5 / 6)",
+    "for_9_eligible_quarters_required_count": 8,
+    "rationale": "preserve the original 10/12 stability proportion without lowering training/test sufficiency or expanding the discovery window after model outcomes"
+  },
+  "passing_meaning": "fast risk-state evidence only; any timing, stop, admission, sizing or 12Min consumer requires a separately frozen economic contract",
+  "forbidden": [
+    "changing model parameters from repaired outcomes",
+    "changing horizon or target set from repaired outcomes",
+    "lowering minimum train or test rows",
+    "expanding discovery dates after outcomes",
+    "direction or expected-return reinterpretation",
+    "test-set threshold calibration",
+    "binary trade veto or sizing in this experiment",
+    "NQ input or threshold fitting",
+    "StrategySpec/runtime/broker/live authority"
+  ]
+}
