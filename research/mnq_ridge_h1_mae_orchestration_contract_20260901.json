@@ -1,0 +1,60 @@
+{
+  "schema": "foundry.mnq_ridge_h1_mae_orchestration_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_combined_outcome_inspection": true,
+  "objective": "Test whether strong 1H/H4 side-specific adverse-excursion ranking can improve the existing 12Min/H12 Ridge expected-move opportunity policy as a veto-only slow-risk context.",
+  "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+  "timestamp_contract": "Use the corrected deep timestamp contract. A 1H risk score is available only at the end of its fully completed hour; every 12Min decision joins the latest risk score with available_at <= decision timestamp.",
+  "opportunity_policy": {
+    "timeframe": "12Min",
+    "horizon_bars": 12,
+    "model": "StandardScaler + Ridge(alpha=10.0) on normalized future point move",
+    "signal_rule": "Trade sign(predicted normalized move) only when abs(prediction) clears the fixed 50th-percentile threshold learned from four chronological inner OOF folds using prior data only.",
+    "authority": "Proposal/control only; no tuning in this experiment."
+  },
+  "risk_policy": {
+    "timeframe": "1H",
+    "horizon_bars": 4,
+    "model": "Side-specific HistGradientBoostingRegressor(loss=quantile, quantile=0.80, learning_rate=0.05, max_iter=180, max_leaf_nodes=31, min_samples_leaf=40, l2_regularization=1.0, random_state=42)",
+    "targets": ["long_mae_z", "short_mae_z"],
+    "threshold": "For each outer period and side, q80 of that fitted risk model's predictions on prior training rows only. No economic outcome selects the threshold."
+  },
+  "primary_consumer": "side_mae_q80_veto",
+  "consumer_rule": "Start from each baseline Ridge expected-move signal. For a long signal, abstain only if the latest completed-hour predicted long MAE is >= its prior-training q80 threshold. For a short signal, use predicted short MAE analogously. Otherwise preserve the Ridge direction exactly. Risk context may veto only; it cannot invert direction, create trades, resize, or change the Ridge magnitude gate.",
+  "chronology": {
+    "discovery_panel": "Quarterly expanding walk-forward from 2023Q3 through 2025Q4. Both 12Min opportunity and 1H risk models are trained only on data strictly prior to the evaluation period with their own horizon purges.",
+    "forward_panel": "Freeze the same composite policy and evaluate corrected 2026-01-01 onward data with no changes after discovery outcomes.",
+    "forbidden": [
+      "use an incomplete current 1H bar",
+      "retune q50 Ridge magnitude threshold from economic outcomes",
+      "retune q80 MAE veto threshold from economic outcomes",
+      "select long/short thresholds separately after outcomes",
+      "drop bad weeks/phases/years/regimes",
+      "invert Ridge direction",
+      "use NQ as a model input"
+    ]
+  },
+  "economics": {
+    "round_trip_cost_points": [0.5, 1.0, 2.0, 4.0],
+    "phase_rule": "Every absolute-UTC non-overlap H12 phase is reported; none selected post-hoc.",
+    "required_metrics": [
+      "baseline and conditioned weekly median phase net points",
+      "paired weekly delta",
+      "positive-week fraction",
+      "p10",
+      "bottom-decile mean",
+      "worst week",
+      "cumulative weekly points and max drawdown",
+      "baseline vs conditioned signal coverage",
+      "year and quarter decomposition",
+      "veto rate by long/short"
+    ]
+  },
+  "discovery_advance_rule": "At both 1pt and 2pt costs require at least 80 paired valid weeks, positive paired median delta, positive paired mean delta, paired win fraction >0.50, conditioned positive-week fraction >= baseline, conditioned p10 >= baseline, conditioned bottom-decile mean >= baseline, and conditioned max drawdown no worse than baseline. All checks must pass.",
+  "forward_confirmation_rule": "The corrected 2026 panel is low-power confirmation only. Require positive paired median and mean delta and wins in a majority of available paired weeks to continue. A pass cannot promote trading; a failure rejects or redesigns the consumer.",
+  "interpretation": "Because both components were discovered on overlapping historical MNQ data before this composite was proposed, even a discovery-panel pass is exploratory. A composite that also survives frozen 2026 confirmation may advance to independent NQ/pre-2019 mechanism validation and additional untouched/paper-forward observation, not trading authority.",
+  "nq_boundary": "NQ is excluded from model inputs and threshold fitting. It is reserved for later independent/pre-MNQ validation of an unchanged composite mechanism if this MNQ consumer survives.",
+  "tuning_allowed": false,
+  "live_authority": false
+}
