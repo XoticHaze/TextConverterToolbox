@@ -1,0 +1,83 @@
+{
+  "schema": "foundry.mnq_ridge_h1_opportunity_risk_contract.v1",
+  "created_before_outcome_inspection": true,
+  "research_only": true,
+  "promotion_authority": false,
+  "live_authority": false,
+  "parent_evidence": {
+    "binary_mae_veto": "rejected",
+    "pure_inverse_mae_budget": "rejected_as_specified_but_improved_tail_risk",
+    "pure_inverse_mae_exact_head": "51c3baffbf067f0832fa83cb9b0d3caba2a5d62d",
+    "pure_inverse_mae_run": 33538713997,
+    "motivation": "1H MAE-only conditioning improved drawdown and lower-tail outcomes but slightly reduced average/median return, so test a distinct opportunity-per-unit-risk consumer rather than retuning MAE-only weights"
+  },
+  "source": {
+    "repository": "mbytes21/MNQ_DATA",
+    "commit": "fc5508e2c152938d6d9eb70a36b888ae26107176",
+    "timestamp_contract": "America/New_York right-close labels -> DST-aware UTC -> subtract one minute -> UTC bar start"
+  },
+  "opportunity_policy": {
+    "timeframe": "12Min",
+    "horizon_bars": 12,
+    "model": "StandardScaler + Ridge(alpha=10, solver=lsqr)",
+    "signal_gate": "prior-only chronological inner-OOF q50 absolute predicted normalized move",
+    "unchanged_signal_direction": true,
+    "unchanged_signal_presence": true
+  },
+  "risk_model": {
+    "timeframe": "1H",
+    "horizon_hours": 4,
+    "targets": ["long_mae_z", "short_mae_z"],
+    "model": "timestamp-corrected fixed H4 q80 HistGradientBoosting MAE estimator",
+    "prerequisite_commit": "d2e1e0c4fd80235a76b0969a249f90eeb7b227d1",
+    "availability": "latest fully completed-hour score only; OOS missing score fails closed"
+  },
+  "consumer": {
+    "name": "opportunity_to_mae_exposure_neutral_budget",
+    "training_reference": "prior Ridge-selected rows with chronology-valid completed-hour risk score only",
+    "side_specific_opportunity_reference": "median absolute Ridge predicted move-z among prior selected signals of the same side",
+    "side_specific_risk_reference": "median predicted MAE-z among prior selected signals of the same side",
+    "opportunity_intensity": "abs(current Ridge predicted move-z) / prior same-side median abs Ridge predicted move-z",
+    "risk_intensity": "current side-specific predicted MAE-z / prior same-side median predicted MAE-z",
+    "raw_quality": "opportunity_intensity / max(risk_intensity, 1e-12)",
+    "first_clip": [0.5, 1.5],
+    "training_normalization": "divide by mean first-clipped raw quality across prior selected training signals only",
+    "final_clip": [0.5, 1.5],
+    "cost_scaling": "point costs scale proportionally with fractional research exposure",
+    "forbidden": [
+      "binary veto or abstention",
+      "signal creation or direction inversion",
+      "post-outcome cap or normalization changes",
+      "future/OOS normalization",
+      "retuning Ridge or MAE models"
+    ]
+  },
+  "discovery": {
+    "start": "2023-07-01T00:00:00Z",
+    "end_exclusive": "2026-01-01T00:00:00Z",
+    "quarterly_expanding_fits": true,
+    "ridge_horizon_purge_bars": 12,
+    "risk_horizon_purge_hours": 4,
+    "all_absolute_utc_h12_phases": true,
+    "point_costs": [0.5, 1.0, 2.0, 4.0],
+    "minimum_paired_weeks": 80
+  },
+  "advancement": {
+    "required_at_cost_points": [1.0, 2.0],
+    "checks_each_required_cost": {
+      "paired_weeks_at_least": 80,
+      "paired_mean_delta_positive": true,
+      "paired_median_delta_nonnegative": true,
+      "paired_win_fraction_gt": 0.5,
+      "positive_week_fraction_no_worse": true,
+      "p10_no_worse": true,
+      "bottom10pct_mean_no_worse": true,
+      "max_drawdown_improvement_at_least_fraction": 0.10,
+      "mean_oos_exposure_between": [0.90, 1.10]
+    },
+    "passing_meaning": "advance unchanged to a separately frozen corrected-2026 confirmation only"
+  },
+  "tuning_allowed": false,
+  "nq_boundary": "NQ remains excluded until this exact MNQ consumer passes discovery and an unchanged corrected-2026 confirmation",
+  "authority_boundary": "research evidence only; no StrategySpec, runtime, broker, capital, sizing or live-trading authority"
+}
