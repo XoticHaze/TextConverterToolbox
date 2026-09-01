@@ -1,0 +1,55 @@
+name: Licensed MNQ payload endpoint audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/licensed_mnq_payload_endpoint_audit.py'
+      - '.github/workflows/licensed-mnq-payload-endpoint-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate audit source
+        run: python -m py_compile research/licensed_mnq_payload_endpoint_audit.py
+      - name: Install bounded dependency
+        run: python -m pip install --disable-pip-version-check -q pandas tzdata
+      - name: Fetch exact licensed MNQ archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          curl --fail --location --retry 3 --retry-delay 2 \
+            'https://www.kaggle.com/api/v1/datasets/download/brandenmorris/mnq-1m-q4-2022-q4-2025-ts-ohlcv-sym' \
+            -o source/mnq.zip
+          echo '633eb4338a3aa60aedb542b12085acca29ff237c7cadff65442a638466f37667  source/mnq.zip' | sha256sum -c -
+          unzip -q source/mnq.zip -d source/extracted
+          echo "PAYLOAD_FILES=$(find source/extracted -type f | wc -l)"
+      - name: Audit every CSV for exact residual windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/endpoint-audit
+          python -m research.licensed_mnq_payload_endpoint_audit \
+            --root source/extracted \
+            --output artifacts/endpoint-audit/receipt.json \
+            2>&1 | tee artifacts/endpoint-audit/run.log
+      - name: Upload compact endpoint evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: licensed-mnq-payload-endpoint-audit
+          path: |
+            artifacts/endpoint-audit/receipt.json
+            artifacts/endpoint-audit/run.log
+          if-no-files-found: error
+          retention-days: 30
