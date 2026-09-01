@@ -1,0 +1,52 @@
+{
+  "schema": "foundry.mnq_multires_foundation_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_outcome_inspection": true,
+  "objective": "Establish chronology-clean economic baselines for fast 1Min and slow 1H MNQ research before model-family tuning or orchestration selection.",
+  "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+  "execution_market": "MNQ",
+  "nq_boundary": "NQ is not an input to these MNQ models. NQ remains reserved for later external validation and pre-MNQ historical extension after an MNQ hypothesis earns advancement.",
+  "timeframes": {
+    "1min": {
+      "role": "fast opportunity/timing foundation",
+      "configs": {
+        "m1_h30_v05": {"bar_minutes": 1, "horizon_bars": 30, "vol_multiplier": 0.5},
+        "m1_h60_v05": {"bar_minutes": 1, "horizon_bars": 60, "vol_multiplier": 0.5}
+      },
+      "model": "StandardScaler + class-balanced SGDClassifier(log_loss, average=True, random_state=42)"
+    },
+    "1h": {
+      "role": "slow state/regime/opportunity foundation",
+      "configs": {
+        "h1_h4_v05": {"bar_minutes": 60, "horizon_bars": 4, "vol_multiplier": 0.5},
+        "h1_h12_v05": {"bar_minutes": 60, "horizon_bars": 12, "vol_multiplier": 0.5}
+      },
+      "model": "StandardScaler + class-balanced LogisticRegression(max_iter=2500, random_state=42)"
+    }
+  },
+  "features": "Same causal feature family at each resolution: lagged log returns, realized volatility, range/body, volume z-scores, EMA distance, momentum, time-of-day and day-of-week. No forward-aligned features.",
+  "chronology": "Quarterly expanding walk-forward. Training ends at least one forecast horizon before each evaluation quarter. No random split. No OOS hyperparameter, threshold, feature, phase, week, year, or regime selection.",
+  "target": "Three-class volatility-scaled future move: long if forward log move exceeds +vol_multiplier * rolling volatility * sqrt(horizon), short below the negative threshold, otherwise abstain/neutral.",
+  "economic_contract": {
+    "unit": "MNQ points",
+    "round_trip_cost_points": [0.5, 1.0, 2.0, 4.0],
+    "phase_rule": "Every absolute-UTC non-overlap phase modulo forecast horizon is reported. None may be selected after outcomes are visible.",
+    "weekly_reporting": "Every complete-enough futures trade week is reported. Partial weeks may be excluded only by the same deterministic support rule for all periods.",
+    "required_metrics": [
+      "OOS balanced accuracy and macro F1",
+      "signal coverage",
+      "weekly median of non-overlap phase net points",
+      "weekly mean",
+      "positive-week fraction",
+      "p10",
+      "bottom-decile mean",
+      "worst week",
+      "max cumulative weekly drawdown",
+      "year and quarter decomposition"
+    ]
+  },
+  "interpretation_rule": "This pass is discovery/foundation, not promotion. A configuration earns a model-family or orchestration challenge only if economics are nontrivial after 1-point cost, not obviously concentrated in one period, and supported by enough chronological weeks. Weak or negative baselines eliminate that target/resolution before tuning.",
+  "tuning_allowed": false,
+  "live_authority": false
+}
