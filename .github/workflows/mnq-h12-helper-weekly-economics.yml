@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'research/mnq_h12_helper_weekly_economics.py'
+      - 'research/mnq_h12_helper_weekly_economics_v2.py'
       - 'research/mnq_h12_helper_weekly_economics_contract_20260901.json'
       - '.github/workflows/mnq-h12-helper-weekly-economics.yml'
   workflow_dispatch:
@@ -27,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m json.tool research/mnq_h12_helper_weekly_economics_contract_20260901.json >/dev/null
-          python -m py_compile research/mnq_h12_helper_weekly_economics.py
+          python -m py_compile research/mnq_h12_helper_weekly_economics.py research/mnq_h12_helper_weekly_economics_v2.py
           python - <<'PY'
           import json
           from pathlib import Path
@@ -61,7 +62,7 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p artifacts/h12-helper-weekly
-          python -m research.mnq_h12_helper_weekly_economics \
+          python -m research.mnq_h12_helper_weekly_economics_v2 \
             --deep-root vendor/MNQ_DATA/plaintext_csv \
             --output artifacts/h12-helper-weekly/receipt.json \
             2>&1 | tee artifacts/h12-helper-weekly/run.log
