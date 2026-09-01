@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'research/mnq_h24_mae_yahoo_julaug_transfer.py'
+      - 'research/mnq_h24_mae_gate_semantics.py'
       - '.github/workflows/mnq-h24-mae-yahoo-julaug.yml'
   workflow_dispatch:
 
@@ -39,9 +40,18 @@ jobs:
           python -m research.mnq_h24_mae_yahoo_julaug_transfer \
             --deep-root vendor/MNQ_DATA/plaintext_csv \
             --output artifacts/mae-yahoo-julaug/receipt.json
+      - name: Normalize inclusive floating gate boundary semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m research.mnq_h24_mae_gate_semantics \
+            --input artifacts/mae-yahoo-julaug/receipt.json \
+            --output artifacts/mae-yahoo-julaug/receipt.normalized.json
       - uses: actions/upload-artifact@v4
         with:
           name: mnq-h24-mae-yahoo-julaug-transfer
-          path: artifacts/mae-yahoo-julaug/receipt.json
+          path: |
+            artifacts/mae-yahoo-julaug/receipt.json
+            artifacts/mae-yahoo-julaug/receipt.normalized.json
           if-no-files-found: error
           retention-days: 30
