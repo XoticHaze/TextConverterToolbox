@@ -31,7 +31,7 @@ jobs:
       - name: Prove batched evaluator parity
         run: |
           set -euo pipefail
-          pytest -q tests/test_mnq_short_opportunity_oos_batched.py
+          python -m pytest -q tests/test_mnq_short_opportunity_oos_batched.py
       - name: Run short-opportunity OOS panel
         run: |
           set -euo pipefail
