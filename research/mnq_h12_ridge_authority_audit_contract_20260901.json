@@ -1,0 +1,63 @@
+{
+  "schema": "foundry.mnq_h12_ridge_authority_audit_contract.v1",
+  "created_before_audit_outcome_inspection": true,
+  "research_only": true,
+  "promotion_authority": false,
+  "live_authority": false,
+  "objective": "determine whether the positive 12Min/H12 Ridge weekly economics reflect directional information beyond same-selection long/prior-majority exposure",
+  "source": {
+    "repository": "mbytes21/MNQ_DATA",
+    "commit": "fc5508e2c152938d6d9eb70a36b888ae26107176",
+    "timestamp_contract": "America/New_York right-close labels -> DST-aware UTC -> subtract one minute -> UTC bar start"
+  },
+  "unchanged_ridge_policy": {
+    "bar_minutes": 12,
+    "horizon_bars": 12,
+    "feature_set": "baseline20",
+    "model": "StandardScaler + Ridge(alpha=10)",
+    "target": "future H12 MNQ point move / (current close * causal rv_120 * sqrt(12))",
+    "outer": "quarterly expanding 2023Q3-2025Q4",
+    "purge_rows": 12,
+    "inner_oof_folds": 4,
+    "selection": "prior-only q50 absolute normalized Ridge prediction",
+    "nonoverlap": "all absolute-UTC H12 phases reported",
+    "point_costs": [0.5, 1.0, 2.0, 4.0]
+  },
+  "diagnostic_controls": {
+    "same_selected_always_long": "on every OOS row selected by Ridge, force +1 and keep all nonselected rows flat",
+    "same_selected_prior_majority": "on every OOS row selected by Ridge, use sign(mean prior outer-training normalized target)) and keep all nonselected rows flat",
+    "ridge_long_only": "retain only Ridge +1 signals",
+    "ridge_short_only": "retain only Ridge -1 signals",
+    "sign_flipped_ridge": "invert every selected Ridge sign as a falsification control"
+  },
+  "required_diagnostics": [
+    "per-quarter raw outer prediction-target Pearson and Spearman",
+    "inner-OOF raw prediction-target Pearson and Spearman",
+    "inner-OOF selected sign accuracy and signed normalized outcome",
+    "outer selected sign accuracy and selected signed point outcome",
+    "Ridge long/short counts",
+    "weekly nonoverlap-phase economics for Ridge and all controls",
+    "paired weekly deltas Ridge minus same-selected always-long and prior-majority controls"
+  ],
+  "interpretation_gate": {
+    "cost_cases": [1.0, 2.0],
+    "directional_increment_established_only_if_for_each_control_and_cost": [
+      "paired weekly mean delta > 0",
+      "paired weekly median delta > 0",
+      "paired weekly win fraction > 0.50",
+      "Ridge absolute weekly mean > control absolute weekly mean",
+      "Ridge absolute weekly median > control absolute weekly median"
+    ],
+    "if_gate_fails": "do not describe current H12 Ridge economics as established directional alpha; retain only the narrower selection/drift evidence supported by the audit",
+    "if_gate_passes": "directional-opportunity interpretation survives this audit but gains no promotion authority"
+  },
+  "forbidden": [
+    "changing Ridge alpha",
+    "changing q50 selection threshold",
+    "changing H12 horizon",
+    "changing features",
+    "post-outcome phase selection",
+    "using 2026 to alter discovery interpretation",
+    "StrategySpec/runtime/broker/live changes"
+  ]
+}
