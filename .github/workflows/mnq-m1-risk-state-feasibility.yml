@@ -1,0 +1,123 @@
+name: MNQ corrected 1Min fast risk-state feasibility-fixed discovery
+
+on:
+  pull_request:
+    branches: [assistant/mnq-m1-expected-move-r1]
+    paths:
+      - 'research/mnq_m1_risk_state_feasibility_fixed.py'
+      - 'research/mnq_m1_risk_state_feasibility_amendment_20260901.json'
+      - '.github/workflows/mnq-m1-risk-state-feasibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  risk-state-feasibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate frozen parent plus pre-outcome feasibility amendment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m json.tool research/mnq_m1_risk_state_contract_20260901.json >/dev/null
+          python -m json.tool research/mnq_m1_risk_state_feasibility_amendment_20260901.json >/dev/null
+          python -m py_compile research/mnq_m1_risk_state.py research/mnq_m1_risk_state_feasibility_fixed.py research/deep_mnq_source_contract.py research/mnq_external_transfer_validation.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          parent=json.loads(Path('research/mnq_m1_risk_state_contract_20260901.json').read_text())
+          amend=json.loads(Path('research/mnq_m1_risk_state_feasibility_amendment_20260901.json').read_text())
+          assert parent['created_before_outcome_inspection'] is True
+          assert parent['validation']['minimum_training_rows'] == 150000
+          assert parent['validation']['minimum_test_rows'] == 30000
+          assert parent['validation']['discovery_start'] == '2023-01-01T00:00:00Z'
+          assert parent['validation']['discovery_end_exclusive'] == '2026-01-01T00:00:00Z'
+          assert amend['created_before_repaired_outcome_inspection'] is True
+          assert amend['failed_execution']['workflow_run'] == 33539252789
+          assert amend['failed_execution']['model_metrics_emitted_before_failure'] is False
+          f=amend['feasibility_correction']
+          assert f['original_expected_quarters'] == 12
+          assert f['original_required_positive_quarters'] == 10
+          assert f['minimum_eligible_quarters'] == 9
+          assert f['for_9_eligible_quarters_required_count'] == 8
+          assert amend['unchanged']['minimum_training_rows'] == 150000
+          assert amend['unchanged']['minimum_test_rows'] == 30000
+          assert amend['unchanged']['tuning_allowed'] is False
+          assert amend['live_authority'] is False
+          print('M1_FAST_RISK_FEASIBILITY_AMENDMENT=PASS')
+          PY
+
+      - name: Install bounded research dependencies
+        run: python -m pip install --disable-pip-version-check -q numpy pandas scipy scikit-learn tzdata
+
+      - name: Fetch pinned deep MNQ corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vendor/MNQ_DATA
+          git -C vendor/MNQ_DATA init
+          git -C vendor/MNQ_DATA remote add origin https://github.com/mbytes21/MNQ_DATA.git
+          git -C vendor/MNQ_DATA fetch --depth=1 origin fc5508e2c152938d6d9eb70a36b888ae26107176
+          git -C vendor/MNQ_DATA checkout --detach FETCH_HEAD
+          test "$(git -C vendor/MNQ_DATA rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+          echo 'DEEP_MNQ_PIN=PASS'
+
+      - name: Execute feasibility-fixed corrected 1Min fast-risk study
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/m1-risk-state-feasibility
+          python -m research.mnq_m1_risk_state_feasibility_fixed \
+            --deep-root vendor/MNQ_DATA/plaintext_csv \
+            --output artifacts/m1-risk-state-feasibility/receipt.json \
+            2>&1 | tee artifacts/m1-risk-state-feasibility/run.log
+          rc=${PIPESTATUS[0]}
+          echo "M1_FAST_RISK_FEASIBILITY_EXIT_CODE=$rc" | tee -a artifacts/m1-risk-state-feasibility/run.log
+          exit "$rc"
+
+      - name: Verify corrected provenance and proportional fold gate
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, math
+          from pathlib import Path
+          d=json.loads(Path('artifacts/m1-risk-state-feasibility/receipt.json').read_text())
+          c=d['deep_timestamp_contract']
+          assert c['source_timestamp_timezone'] == 'America/New_York'
+          assert c['source_bar_label'] == 'right_close'
+          assert c['normalized_timestamp'] == 'UTC bar start'
+          assert sorted(d['horizons']) == ['12','24']
+          assert sorted(d['decisions']) == ['12','24']
+          for h in ('12','24'):
+              f=d['feasibility'][h]
+              assert f['eligible_quarters'] >= 9
+              assert f['required_stable_quarters'] == math.ceil(f['eligible_quarters'] * 5 / 6)
+              assert set(d['decisions'][h]) == {'long_mae_z','short_mae_z','future_rv_z'}
+              for target, rec in d['decisions'][h].items():
+                  assert rec['eligible_quarters'] == f['eligible_quarters']
+                  assert rec['required_stable_quarters'] == f['required_stable_quarters']
+          print('M1_FAST_RISK_FEASIBILITY_PROVENANCE=PASS')
+          PY
+
+      - name: Upload feasibility-fixed fast-risk receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnq-m1-fast-risk-state-feasibility-fixed
+          path: |
+            artifacts/m1-risk-state-feasibility/receipt.json
+            artifacts/m1-risk-state-feasibility/run.log
+            research/mnq_m1_risk_state_contract_20260901.json
+            research/mnq_m1_risk_state_feasibility_amendment_20260901.json
+            research/mnq_m1_risk_state_feasibility_fixed.py
+          if-no-files-found: warn
+          retention-days: 30
