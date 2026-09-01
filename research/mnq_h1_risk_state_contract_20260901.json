@@ -1,0 +1,34 @@
+{
+  "schema": "foundry.mnq_h1_risk_state_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_outcome_inspection": true,
+  "objective": "Test whether 1H MNQ bars contain stable chronology-OOS information about future adverse excursion and realized volatility even though direct 1H direction classification failed.",
+  "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+  "market": "MNQ",
+  "bar_minutes": 60,
+  "horizons": [4, 12],
+  "targets": {
+    "long_mae_z": "maximum adverse excursion for a hypothetical long over the next horizon, normalized by current close * rv120 * sqrt(horizon)",
+    "short_mae_z": "maximum adverse excursion for a hypothetical short over the next horizon, normalized by current close * rv120 * sqrt(horizon)",
+    "future_rv_z": "realized standard deviation of forward 1H log returns over the horizon divided by current rv120"
+  },
+  "features": "Causal 1H-only state features: lagged returns, realized volatility, range/body, volume z-scores, EMA distances, momentum, time-of-day and day-of-week. No NQ inputs and no future-aligned features.",
+  "models": {
+    "mae": "HistGradientBoostingRegressor(loss=quantile, quantile=0.80, learning_rate=0.05, max_iter=180, max_leaf_nodes=31, min_samples_leaf=40, l2_regularization=1.0, random_state=42)",
+    "future_rv": "HistGradientBoostingRegressor(loss=squared_error, learning_rate=0.05, max_iter=180, max_leaf_nodes=31, min_samples_leaf=40, l2_regularization=1.0, random_state=42)"
+  },
+  "chronology": "Quarterly expanding walk-forward from 2022 through 2025 with full-horizon purge between train and test. No random split, no OOS tuning, no target/feature/horizon selection after outcomes.",
+  "evaluation": {
+    "minimum_quarters": 12,
+    "rank_metrics": ["Spearman", "Pearson"],
+    "cohort_test": "Within each OOS quarter, assign predicted-risk quintiles using cutpoints learned only from the prior training predictions. Compare realized Q5 vs Q1 and monotonic quintile ordering.",
+    "required_support": "Report every eligible chronological quarter. Do not average away quarter failures.",
+    "advance_rule_mae": "A side/horizon is promising only if OOS Spearman is positive in at least 10 of 12+ quarters, median Spearman >= 0.15, and realized Q5 MAE > Q1 MAE in at least 10 of 12+ quarters. Full monotonicity is diagnostic but reported.",
+    "advance_rule_rv": "Future-RV is promising only if OOS Spearman is positive in at least 10 of 12+ quarters and median Spearman >= 0.20."
+  },
+  "interpretation": "Passing establishes a slow risk/state context candidate only. It does not authorize a gate, sizing rule, entry model, DCA rule, capital routing, or live trading. Any economic consumer must be separately precommitted before its outcomes are inspected.",
+  "nq_boundary": "NQ is excluded from model inputs and threshold fitting. NQ may later be used only as independent/pre-MNQ historical validation after an MNQ risk hypothesis passes.",
+  "tuning_allowed": false,
+  "live_authority": false
+}
