@@ -1,0 +1,45 @@
+name: Deep MNQ filename coverage preflight
+
+on:
+  pull_request:
+    branches: [assistant/mnq-ridge-h1-risk-budget-r1]
+    paths:
+      - 'research/deep_mnq_filename_coverage.py'
+      - '.github/workflows/deep-mnq-filename-coverage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  filenames:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned deep MNQ tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/mbytes21/MNQ_DATA.git deep
+          git -C deep sparse-checkout init --cone
+          git -C deep sparse-checkout set plaintext_csv
+          git -C deep checkout --detach fc5508e2c152938d6d9eb70a36b888ae26107176
+          test "$(git -C deep rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+      - name: Execute filename coverage preflight
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/filename-coverage
+          python -m research.deep_mnq_filename_coverage \
+            --deep-root deep/plaintext_csv \
+            --output artifacts/filename-coverage/receipt.json \
+            2>&1 | tee artifacts/filename-coverage/run.log
+      - name: Upload filename coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-mnq-filename-coverage
+          path: |
+            artifacts/filename-coverage/receipt.json
+            artifacts/filename-coverage/run.log
+          if-no-files-found: error
+          retention-days: 30
