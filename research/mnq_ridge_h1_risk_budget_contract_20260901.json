@@ -1,0 +1,62 @@
+{
+  "schema": "foundry.mnq_ridge_h1_risk_budget_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_outcome_inspection": true,
+  "objective": "Test whether validated 1H/H4 side-specific MAE improves the existing 12Min/H12 Ridge opportunity policy when used as continuous exposure/risk budgeting rather than the rejected binary q80 veto.",
+  "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+  "timestamp_contract": "Use the evidenced America/New_York right-close -> UTC bar-start correction. A 1H score is usable only after the full hour closes.",
+  "opportunity_policy": {
+    "timeframe": "12Min",
+    "horizon_bars": 12,
+    "model": "StandardScaler + Ridge(alpha=10.0)",
+    "signal_rule": "Preserve the existing prior-only four-fold OOF q50 absolute expected-move magnitude gate and Ridge direction exactly."
+  },
+  "risk_model": {
+    "timeframe": "1H",
+    "horizon_bars": 4,
+    "targets": ["long_mae_z", "short_mae_z"],
+    "model": "HistGradientBoostingRegressor(loss=quantile, quantile=0.80, learning_rate=0.05, max_iter=180, max_leaf_nodes=31, min_samples_leaf=40, l2_regularization=1.0, random_state=42)",
+    "prerequisite": "The exact timestamp-corrected H4 risk-state contract must retain its frozen advancement result before economic evaluation."
+  },
+  "consumer": {
+    "name": "inverse_mae_exposure_neutral_budget",
+    "rule": "For each Ridge signal, use the latest fully completed-hour predicted MAE for that signal side. On prior training Ridge-signal rows only, compute the side-specific median predicted MAE. Raw weight = side_training_median_predicted_mae / current_predicted_mae. Clip raw weight to [0.50, 1.50]. Compute the mean clipped raw weight across all prior training Ridge-signal rows and divide each future raw weight by that training-only mean; clip the final future weight again to [0.50, 1.50]. Direction and signal presence are unchanged.",
+    "cost_accounting": "Economic points and round-trip point cost are both multiplied by fractional exposure weight. This is a research notional-equivalent simulation, not an executable contract-size rule.",
+    "forbidden": [
+      "binary veto or abstention",
+      "change Ridge direction or magnitude gate",
+      "choose weight caps after outcomes",
+      "choose side-specific caps after outcomes",
+      "normalize weights using future/OOS rows",
+      "use incomplete current 1H bars",
+      "use realized future MAE to size a trade",
+      "use NQ as an input"
+    ]
+  },
+  "chronology": {
+    "discovery": "Quarterly expanding walk-forward from 2023Q3 through 2025Q4. Opportunity and risk models use separate horizon purges and only prior data.",
+    "phase_rule": "Every absolute-UTC non-overlap H12 phase is reported; none selected post-hoc.",
+    "forward": "Only a full discovery pass earns an unchanged corrected-2026 confirmation."
+  },
+  "economics": {
+    "round_trip_cost_points": [0.5, 1.0, 2.0, 4.0],
+    "minimum_paired_weeks": 80,
+    "required_metrics": [
+      "unit Ridge baseline and risk-budget weekly phase-net statistics",
+      "paired weekly delta",
+      "positive-week fraction",
+      "p10 and bottom-decile mean",
+      "worst week",
+      "cumulative statistic and max drawdown",
+      "mean/median/p10/p90 exposure weight",
+      "long/short exposure weights",
+      "year and quarter decomposition"
+    ]
+  },
+  "discovery_advance_rule": "At both 1pt and 2pt require >=80 paired weeks; risk-budget paired median delta >=0 and mean delta >0; paired win fraction >0.50; positive-week fraction no worse than unit Ridge; p10 and bottom-decile mean no worse; max drawdown improves by at least 10%; OOS mean exposure weight must remain in [0.90, 1.10]. All checks must pass. If not, reject this risk-budget formula rather than changing caps or normalization post-hoc.",
+  "interpretation": "A pass would support 1H as a continuous capital/risk context for a 12Min opportunity engine, not as a direction source. A fail rejects this formula only, not the independently validated risk predictor or the 12Min Ridge opportunity model.",
+  "nq_boundary": "NQ remains reserved for later independent/pre-MNQ validation of an unchanged composite after MNQ discovery and corrected-2026 confirmation.",
+  "tuning_allowed": false,
+  "live_authority": false
+}
