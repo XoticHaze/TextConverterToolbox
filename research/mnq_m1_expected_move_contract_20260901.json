@@ -1,0 +1,61 @@
+{
+  "schema": "foundry.mnq_m1_expected_move_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_outcome_inspection": true,
+  "objective": "Test whether the failed 1Min direct-direction lane becomes economically useful when the target is normalized future point move and the model role is expected-move regression rather than three-class direction classification.",
+  "source": "mbytes21/MNQ_DATA@fc5508e2c152938d6d9eb70a36b888ae26107176",
+  "timestamp_contract": "Raw Last.csv timestamps are America/New_York right-close labels; normalize DST-aware to UTC bar start by subtracting one minute after UTC conversion. Use this corrected contract from the first row of all training and evaluation.",
+  "bar_minutes": 1,
+  "configs": {
+    "m1_h30": {"horizon_bars": 30, "classifier_vol_multiplier": 0.5},
+    "m1_h60": {"horizon_bars": 60, "classifier_vol_multiplier": 0.5}
+  },
+  "features": [
+    "ret_1", "ret_3", "ret_6", "ret_12", "ret_30", "ret_60",
+    "range_frac", "body_frac",
+    "log_volume", "volume_z_30", "volume_z_120",
+    "rv_30", "rv_120", "rv_390",
+    "ema12_dist", "ema60_dist",
+    "mom_30", "mom_120",
+    "hour_sin", "hour_cos", "dow_sin", "dow_cos"
+  ],
+  "expected_move_policy": {
+    "model": "StandardScaler + Ridge(alpha=10.0, solver=lsqr)",
+    "target": "future MNQ point move divided by current close * rv_120 * sqrt(horizon)",
+    "signal": "sign(predicted normalized move) only when abs(prediction) clears the 50th percentile of absolute prediction magnitude learned from four chronological inner OOF folds on prior data only",
+    "tuning": "No alpha, feature, horizon, OOF quantile, cost, phase, week, year, or threshold selection from discovery outcomes."
+  },
+  "direct_classifier_control": {
+    "purpose": "Regenerate the failed model role under the corrected timestamp source rather than compare against the older timestamp interpretation.",
+    "model": "StandardScaler + class-balanced multinomial SGDClassifier(log_loss, fixed random_state)",
+    "target": "three-class direction/dead-zone target using the predeclared config volatility multiplier",
+    "authority": "Comparator only; no tuning."
+  },
+  "static_controls": ["always_long", "always_short", "flat"],
+  "chronology": {
+    "discovery": "Quarterly expanding walk-forward from 2023Q3 through 2025Q4 with full horizon purge for each config.",
+    "phase_rule": "Use every absolute-UTC one-minute slot modulo horizon as a non-overlapping phase stream. Report every phase; select none post-hoc.",
+    "forward": "If and only if discovery passes, freeze the unchanged policy and run a separate corrected 2026 confirmation."
+  },
+  "economics": {
+    "round_trip_cost_points": [0.5, 1.0, 2.0, 4.0],
+    "minimum_paired_weeks": 80,
+    "required_metrics": [
+      "weekly median and mean phase net points",
+      "paired expected-move minus direct-classifier weekly delta",
+      "positive-week fraction",
+      "p10 and bottom-decile mean",
+      "worst week",
+      "cumulative weekly statistic and max drawdown",
+      "signal coverage",
+      "long/short signal counts",
+      "year and quarter decomposition",
+      "static long/short controls"
+    ]
+  },
+  "discovery_advance_rule": "For both H30 and H60 separately, at both 1pt and 2pt require >=80 paired valid weeks; expected-move median and mean net points >0; expected-move positive-week fraction >0.50; paired expected-move-minus-direct-classifier median >0, mean >0 and win fraction >0.50; expected-move p10 and bottom-decile mean no worse than direct classifier; expected-move max drawdown no worse than direct classifier. A horizon passes only if all checks pass. At least one horizon must pass unchanged to earn separate corrected-2026 confirmation; no post-hoc blend or horizon selection is allowed beyond reporting the predeclared pass/fail of each config.",
+  "nq_boundary": "NQ is excluded from model inputs and threshold fitting. It remains later independent/pre-MNQ validation only after an unchanged MNQ mechanism survives discovery and corrected 2026 confirmation.",
+  "tuning_allowed": false,
+  "live_authority": false
+}
