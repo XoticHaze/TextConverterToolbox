@@ -1,0 +1,23 @@
+{
+  "schema": "foundry.deep_mnq_gap_fill_integrity_amendment.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "parent_contract": "research/deep_mnq_licensed_gap_fill_contract_20260901.json",
+  "reason": "The first source-union receipt showed that patching every isolated missing primary minute can alternate sources/contracts around otherwise healthy roll periods. This source-semantic amendment is frozen before any model rerun and before any additional gap-source outcome is consumed.",
+  "amended_union_rule": "Supplemental sources may contribute only inside contiguous primary-source timestamp gaps longer than 14 calendar days. They may not patch incidental missing minutes outside those material gaps.",
+  "primary_gap_detection": {
+    "authority": "normalized/stiched deep primary timestamps only",
+    "minimum_gap_minutes_exclusive": 20160,
+    "fill_window": "strictly after the prior primary timestamp and strictly before the next primary timestamp"
+  },
+  "unchanged_rules": [
+    "deep source remains primary wherever it owns a normalized minute",
+    "each supplement is normalized and stitched independently before admission",
+    "never average, interpolate, back-adjust, or modify prices",
+    "preserve source dataset and source contract per admitted minute",
+    "overlap compatibility gates remain unchanged",
+    "downstream research must cite a new repaired-union receipt"
+  ],
+  "objective": "Eliminate source toggling and contract-mismatch micro-seams outside the actual long missing intervals while retaining supplemental coverage of proven material holes.",
+  "live_authority": false
+}
