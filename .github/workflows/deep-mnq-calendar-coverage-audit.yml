@@ -1,0 +1,74 @@
+name: Deep MNQ calendar coverage audit
+
+on:
+  pull_request:
+    branches: [assistant/mnq-ridge-h1-risk-budget-r1]
+    paths:
+      - 'research/deep_mnq_calendar_coverage_audit.py'
+      - '.github/workflows/deep-mnq-calendar-coverage-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate source-only audit
+        run: python -m py_compile research/deep_mnq_calendar_coverage_audit.py
+      - name: Install bounded dependencies
+        run: python -m pip install --disable-pip-version-check -q numpy pandas scikit-learn tzdata
+      - name: Fetch pinned deep MNQ corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p vendor/MNQ_DATA
+          git -C vendor/MNQ_DATA init
+          git -C vendor/MNQ_DATA remote add origin https://github.com/mbytes21/MNQ_DATA.git
+          git -C vendor/MNQ_DATA fetch --depth=1 origin fc5508e2c152938d6d9eb70a36b888ae26107176
+          git -C vendor/MNQ_DATA checkout --detach FETCH_HEAD
+          test "$(git -C vendor/MNQ_DATA rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+          echo 'DEEP_MNQ_PIN=PASS'
+      - name: Execute calendar coverage audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/coverage
+          python -m research.deep_mnq_calendar_coverage_audit \
+            --deep-root vendor/MNQ_DATA/plaintext_csv \
+            --output artifacts/coverage/receipt.json \
+            2>&1 | tee artifacts/coverage/run.log
+      - name: Verify corrected timestamp provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('artifacts/coverage/receipt.json').read_text())
+          c=d['deep_timestamp_contract']
+          assert c['source_timestamp_timezone'] == 'America/New_York'
+          assert c['source_bar_label'] == 'right_close'
+          assert c['normalized_timestamp'] == 'UTC bar start'
+          assert d['raw']['rows'] > 0
+          assert d['stitched']['rows'] > 0
+          assert d['bars_12min']['rows'] > 0
+          print('DEEP_MNQ_CALENDAR_COVERAGE_PROVENANCE=PASS')
+          PY
+      - name: Upload coverage receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-mnq-calendar-coverage-audit
+          path: |
+            artifacts/coverage/receipt.json
+            artifacts/coverage/run.log
+            research/deep_mnq_calendar_coverage_audit.py
+          if-no-files-found: warn
+          retention-days: 30
