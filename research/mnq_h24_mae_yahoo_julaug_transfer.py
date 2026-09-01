@@ -88,6 +88,7 @@ def load_yahoo_mnq() -> tuple[pd.DataFrame, dict]:
         observed_2m=("close", "count"),
     )
     bars = bars[bars["observed_2m"] > 0].reset_index()
+    bars["observed_minutes"] = bars["observed_2m"].astype(float) * 2.0
     if bars.empty:
         raise RuntimeError("Yahoo produced no 12-minute bars")
     daily = bars.groupby(bars["timestamp"].dt.date).size().astype(float)
@@ -115,6 +116,7 @@ def load_yahoo_mnq() -> tuple[pd.DataFrame, dict]:
         "bars_12m": int(len(bars)),
         "median_daily_12m_bars": median_daily,
         "fraction_12m_bars_with_at_least_5_of_6_2m_samples": fullish_fraction,
+        "minute_density_contract": "observed_minutes = observed_2m_samples * 2, clipped by shared feature code at 12 minutes",
         "bar_contract": "provider intraday timestamp normalized to UTC bar start; 2m OHLCV resampled to UTC-origin 12m left-closed/left-labeled bars",
         "raw_data_redistributed": False,
     }
