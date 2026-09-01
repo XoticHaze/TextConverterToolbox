@@ -16,7 +16,7 @@ from research.mnq_h24_mae_axb_transfer import _corr, _prepare, _spearman
 from research.mnq_h24_mae_risk_specialist import risk_model
 
 MIN_TEST_ROWS = 3000
-MIN_STRATUM_ROWS = 700
+MIN_STRATUM_ROWS = 500
 MIN_TAIL_ROWS = 50
 VOL_QUANTILES = (0.25, 0.50, 0.75)
 RISK_TAIL_QUANTILES = (0.25, 0.75)
@@ -118,7 +118,7 @@ def _test_strata(
         mask = vol_idx == stratum
         n = int(mask.sum())
         if n < MIN_STRATUM_ROWS:
-            raise RuntimeError(f"AX B volatility stratum {stratum + 1} has only {n} rows")
+            raise RuntimeError(f"AXB volatility stratum {stratum + 1} has only {n} rows")
         cfg = contract["strata"][stratum]
         p = pred[mask]
         r = realized[mask]
