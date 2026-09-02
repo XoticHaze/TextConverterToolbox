@@ -1,0 +1,49 @@
+{
+  "schema": "foundry.mnq_short_opportunity_temporal_robustness_contract.v1",
+  "research_only": true,
+  "promotion_authority": false,
+  "created_before_temporal_outcome_inspection": true,
+  "parent_scientific_head": "0c4fc75517743a1f316f2d66a25a07db74818dee",
+  "parent_run": 33543883300,
+  "parent_artifact": 9815888120,
+  "objective": "Determine whether the after-cost high-confidence regions visible in the frozen MNQ short-opportunity aggregate grid persist across calendar time rather than being carried by a small number of regimes, without selecting or tuning a threshold from the aggregate result.",
+  "frozen_model_families": ["logistic", "hist_gb", "extra_trees"],
+  "frozen_thresholds": [0.50, 0.55, 0.60, 0.65],
+  "frozen_point_costs": [0.5, 1.0, 2.0],
+  "frozen_horizon_bars": 24,
+  "fit_contract": {
+    "min_train_rows": 5000,
+    "retrain_every": 1000,
+    "probability_stream_floor": 0.50,
+    "fit_scoring_cost": 0.0,
+    "features_targets_and_model_factories": "unchanged_from_parent_head"
+  },
+  "temporal_partition": {
+    "primary_full_years": [2020, 2021, 2022, 2023, 2024, 2025],
+    "partial_years_descriptive_only": [2019, 2026],
+    "minimum_signals_per_year_for_gate": 100,
+    "all_cells_reported": true,
+    "no_best_threshold_selection": true
+  },
+  "required_evidence_per_cell": [
+    "aggregate signal count, gross points, net points, and net points per selected signal",
+    "calendar-year signal count, net points, and net points per selected signal for every observed year",
+    "supported full-year count and positive supported full-year count",
+    "share of positive aggregate net points contributed by the single strongest full year when aggregate net is positive",
+    "partial 2019 and 2026 evidence reported separately and excluded from the stability gate"
+  ],
+  "cell_classification": {
+    "TEMPORALLY_ROBUST": "aggregate net points per selected signal > 0, at least 5 of 6 full years meet minimum support, at least 4 supported full years have positive net points per selected signal, and no single full year contributes more than 60% of the sum of positive full-year net points",
+    "TEMPORALLY_CONCENTRATED": "aggregate net points per selected signal > 0 but TEMPORALLY_ROBUST is not satisfied",
+    "ECONOMICALLY_NEGATIVE": "aggregate net points per selected signal <= 0",
+    "INSUFFICIENT_SUPPORT": "fewer than 5 full years meet the frozen minimum signal support"
+  },
+  "family_interpretation": "A challenger family may be described as having temporal specialist evidence only if at least one predeclared threshold cell is TEMPORALLY_ROBUST at both 1.0 and 2.0 point costs. This does not select that threshold or authorize a policy. Any fixed threshold policy requires a later separately frozen validation on fresh OOS or paper-forward evidence.",
+  "forbidden": [
+    "refitting by cost or threshold",
+    "changing model families, features, target, horizon, retrain cadence, or probability stream",
+    "dropping negative years or cells",
+    "selecting a best threshold from this diagnostic",
+    "short execution, StrategySpec mutation, sizing, broker action, model promotion, or live-trading authority"
+  ]
+}
