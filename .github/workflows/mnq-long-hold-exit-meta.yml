@@ -1,0 +1,69 @@
+name: MNQ conditional HOLD EXIT specialist
+
+on:
+  push:
+    branches:
+      - assistant/mnq-long-hold-exit-meta-r1
+  pull_request:
+    branches:
+      - assistant/mnq-long-hold-exit-r1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  meta-oos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 135
+    steps:
+      - name: Checkout specialist
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install focused research dependencies
+        run: python -m pip install numpy pandas scikit-learn tzdata pytest
+
+      - name: Compile frozen meta-policy and run parent causal contracts
+        run: |
+          python -m py_compile research/run_mnq_long_hold_exit_meta_20260903.py
+          python -m pytest -q research/test_mnq_long_hold_exit_targets.py research/test_mnq_long_hold_exit_oos.py
+
+      - name: Checkout pinned deep MNQ source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .campaign/mnq-long-exit-meta/MNQ_DATA
+          mkdir -p .campaign/mnq-long-exit-meta
+          git clone --filter=blob:none --no-checkout https://github.com/mbytes21/MNQ_DATA.git .campaign/mnq-long-exit-meta/MNQ_DATA
+          cd .campaign/mnq-long-exit-meta/MNQ_DATA
+          git sparse-checkout init --no-cone
+          git sparse-checkout set --no-cone 'plaintext_csv/MNQ */*.Last.csv'
+          git checkout fc5508e2c152938d6d9eb70a36b888ae26107176
+          test "$(git rev-parse HEAD)" = "fc5508e2c152938d6d9eb70a36b888ae26107176"
+          test -f 'plaintext_csv/MNQ 06-19/20190505.Last.csv'
+
+      - name: Run frozen conditional specialist development study
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf research/results/mnq_long_hold_exit_meta_20260903.json
+          python research/run_mnq_long_hold_exit_meta_20260903.py \
+            --deep-root "$GITHUB_WORKSPACE/.campaign/mnq-long-exit-meta/MNQ_DATA/plaintext_csv" \
+            --contract research/mnq_long_hold_exit_meta_contract_20260903.json \
+            --output research/results/mnq_long_hold_exit_meta_20260903.json
+
+      - name: Upload meta-policy evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mnq-long-hold-exit-meta-${{ github.sha }}
+          path: research/results/mnq_long_hold_exit_meta_20260903.json
+          if-no-files-found: warn
+          retention-days: 30
