@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf research/results/mnq_long_hold_exit_meta_20260903.json
-          python research/run_mnq_long_hold_exit_meta_20260903.py \
+          PYTHONPATH="$GITHUB_WORKSPACE" python research/run_mnq_long_hold_exit_meta_20260903.py \
             --deep-root "$GITHUB_WORKSPACE/.campaign/mnq-long-exit-meta/MNQ_DATA/plaintext_csv" \
             --contract research/mnq_long_hold_exit_meta_contract_20260903.json \
             --output research/results/mnq_long_hold_exit_meta_20260903.json
