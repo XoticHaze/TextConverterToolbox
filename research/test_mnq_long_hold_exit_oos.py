@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import research.mnq_long_hold_exit_oos as oos
 from research.mnq_long_hold_exit_oos import (
     HoldExitOOSSpec,
     chronological_long_hold_exit_panel,
@@ -47,25 +48,43 @@ def test_future_label_mutation_cannot_change_earliest_oos_prediction():
     assert replay.iloc[0]["learned_action"] == first["learned_action"]
 
 
-def test_learned_prediction_uses_decision_state_not_entry_state():
+def test_learned_prediction_uses_decision_state_not_entry_state(monkeypatch):
+    """Prove row wiring directly instead of inferring it through a clipped probability.
+
+    The old regression mutated features and expected the first predicted probability to
+    change. That can false-fail when the real ridge prediction is saturated at the 0/1
+    clip boundary. Instrumenting the predictor proves which causal feature row is passed
+    without changing the production implementation.
+    """
     frame = _frame(40)
     target_spec = LongHoldExitSpec(horizon_bars=6, decision_bars=2, cost_points=0.5)
     targets = materialize_long_hold_exit_targets(frame, target_spec)
     spec = HoldExitOOSSpec(min_train_rows=3)
+    seen_rows: list[np.ndarray] = []
+
+    def capture_predict(row, fit):
+        seen_rows.append(np.asarray(row, dtype=float).copy())
+        return 0.5
+
+    monkeypatch.setattr(oos, "_predict_probability", capture_predict)
     base = chronological_long_hold_exit_panel(frame, targets, ["momentum", "rv"], target_spec, spec)
     first = base.iloc[0]
     entry_i = int(first["row_index"])
     decision_i = int(first["decision_row"])
+    expected_decision = frame.loc[decision_i, ["momentum", "rv"]].to_numpy(float)
+    assert np.allclose(seen_rows[0], expected_decision)
 
     entry_mutated = frame.copy()
     entry_mutated.loc[entry_i, ["momentum", "rv"]] = [999.0, 999.0]
-    entry_replay = chronological_long_hold_exit_panel(entry_mutated, targets, ["momentum", "rv"], target_spec, spec)
-    assert entry_replay.iloc[0]["learned_hold_probability"] == pytest.approx(first["learned_hold_probability"])
+    seen_rows.clear()
+    chronological_long_hold_exit_panel(entry_mutated, targets, ["momentum", "rv"], target_spec, spec)
+    assert np.allclose(seen_rows[0], expected_decision)
 
     decision_mutated = frame.copy()
     decision_mutated.loc[decision_i, ["momentum", "rv"]] = [999.0, 999.0]
-    decision_replay = chronological_long_hold_exit_panel(decision_mutated, targets, ["momentum", "rv"], target_spec, spec)
-    assert decision_replay.iloc[0]["learned_hold_probability"] != pytest.approx(first["learned_hold_probability"])
+    seen_rows.clear()
+    chronological_long_hold_exit_panel(decision_mutated, targets, ["momentum", "rv"], target_spec, spec)
+    assert np.allclose(seen_rows[0], np.array([999.0, 999.0]))
 
 
 def test_atr_trailing_uses_decision_atr_not_entry_atr():

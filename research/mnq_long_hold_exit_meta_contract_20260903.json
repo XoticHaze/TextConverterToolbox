@@ -1,0 +1,96 @@
+{
+  "schema": "research.mnq_long_hold_exit_meta_contract.v1",
+  "frozen_before_meta_policy_outcomes": true,
+  "parent": {
+    "pr": 19,
+    "head": "c9ff90f1fa641b74c528abb9003fb729522e6c2d",
+    "unconditional_disposition": "REJECT learned HOLD/EXIT threshold 0.50 as a stable unconditional replacement for ATR trailing; retain threshold 0.50 only as the fixed specialist candidate",
+    "accepted_run": 33466836700,
+    "accepted_artifact": 9785287527
+  },
+  "objective": "test whether the fixed learned HOLD/EXIT policy has chronology-transportable value only in causally identifiable decision-time states while ATR trailing remains the default elsewhere",
+  "market": "MNQ",
+  "source": {
+    "repository": "mbytes21/MNQ_DATA",
+    "commit": "fc5508e2c152938d6d9eb70a36b888ae26107176",
+    "timeframe": "12Min",
+    "existing_parent_stitch_and_feature_semantics": true
+  },
+  "base_exit_policies": {
+    "default": "existing causal ATR trailing from #19",
+    "specialist": "existing learned HOLD/EXIT policy at probability threshold 0.50 from #19",
+    "learned_threshold": 0.50,
+    "decision_bars": 6,
+    "horizon_bars": 24,
+    "cost_points": 1.0,
+    "exit_threshold_search": false,
+    "atr_formula_change": false
+  },
+  "meta_features": [
+    "vol_regime_low",
+    "vol_regime_mid",
+    "vol_regime_high",
+    "trend_regime_down",
+    "trend_regime_mixed",
+    "trend_regime_up",
+    "liquidity_regime_low",
+    "liquidity_regime_mid",
+    "liquidity_regime_high",
+    "session_asia",
+    "session_europe",
+    "session_us",
+    "stress_regime"
+  ],
+  "meta_target": "learned_realized_points_minus_atr_trailing_realized_points for an already-completed parent OOS decision",
+  "meta_model": {
+    "pipeline": "StandardScaler + Ridge(alpha=10.0)",
+    "minimum_resolved_training_rows": 5000,
+    "refit_interval_resolved_rows": 250,
+    "prediction_rule": "fit only on earlier parent-OOS decisions whose target_resolution_row is strictly less than the current decision_row; predict incremental learned-minus-ATR value from current decision-time regime flags",
+    "specialist_activation": "predicted incremental value > 0.0",
+    "activation_threshold": 0.0,
+    "threshold_search": false,
+    "manual_regime_selection": false,
+    "year_feature": false,
+    "ticker_or_contract_identity_feature": false,
+    "pre_support_policy": "ATR default"
+  },
+  "evaluation": {
+    "full_years": [2020, 2021, 2022, 2023, 2024, 2025],
+    "partial_or_bootstrap_years_descriptive_only": [2019, 2026],
+    "primary_delta": "hybrid_realized_points - atr_trailing_realized_points",
+    "secondary_context": [
+      "hybrid minus unconditional learned 0.50",
+      "hybrid minus fixed-horizon",
+      "specialist activation fraction",
+      "activation counts by year and each frozen regime flag"
+    ]
+  },
+  "development_gate": {
+    "required": [
+      "aggregate hybrid-minus-ATR mean points > 0",
+      "hybrid-minus-ATR annual mean positive in at least 4 of 6 full years 2020-2025",
+      "median of the six full-year hybrid-minus-ATR means > 0",
+      "at least 1000 OOS decisions select the learned specialist after meta support begins",
+      "at least 4 of 6 full years contain at least 100 specialist-selected decisions",
+      "no single full year contributes more than 50% of the sum of positive full-year hybrid-minus-ATR points"
+    ],
+    "classification_pass": "CONDITIONAL_HOLD_EXIT_SPECIALIST_DEVELOPMENT_EVIDENCE",
+    "classification_fail": "CONDITIONAL_HOLD_EXIT_META_POLICY_REJECTED",
+    "failure_rule": "do not select favorable years, regimes, activation thresholds, learned thresholds, model alphas, features, sessions, or volatility/trend/liquidity states from these outcomes"
+  },
+  "confirmation_boundary": {
+    "this_corpus_is_development_only": true,
+    "pass_does_not_authorize_policy": true,
+    "next_confirmation_if_pass": "separately frozen unconsumed NQ or genuinely prospective MNQ block; do not reuse 2022, 2025, 2026, AXB, or other previously consumed MNQ slices as fresh confirmation"
+  },
+  "boundaries": {
+    "runtime_exit_authority": false,
+    "StrategySpec_change": false,
+    "broker_action": false,
+    "position_sizing_authority": false,
+    "promotion_authority": false,
+    "live_trading_change": false,
+    "research_only": true
+  }
+}
