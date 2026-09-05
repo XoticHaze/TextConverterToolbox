@@ -1,0 +1,102 @@
+name: Banks Generic Holdout Public Runner 20260905
+
+on:
+  pull_request:
+    paths:
+      - 'research/banks_generic_holdout_public_runner_contract_20260905.json'
+      - 'research/run_banks_generic_holdout_public_runner_20260905.py'
+      - '.github/workflows/banks-generic-holdout-public-runner-20260905.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-banks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate frozen public-runner contract and executable
+        run: |
+          python -m json.tool research/banks_generic_holdout_public_runner_contract_20260905.json >/dev/null
+          python -m py_compile research/run_banks_generic_holdout_public_runner_20260905.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path('research/banks_generic_holdout_public_runner_contract_20260905.json').read_text())
+          assert c['scientific_authority']['repo'] == 'XoticHaze/research-foundry'
+          assert c['scientific_authority']['pr'] == 270
+          assert c['parity_control']['holdout'] == ['CCS','MHO','HOV','BZH']
+          assert c['parity_control']['benchmark'] == 'ITB'
+          assert c['target']['holdout'] == ['PNC','USB','FITB','HBAN']
+          assert c['target']['benchmark'] == 'KBE'
+          assert c['generic_prior']['holdout_target_rows_used_in_training'] is False
+          assert c['boundaries']['live_trading_change'] is False
+          print('BANK_PUBLIC_RUNNER_CONTRACT=PASS')
+          PY
+
+      - name: Install frozen research dependencies
+        run: python -m pip install --disable-pip-version-check -q numpy==1.26.4 pandas==2.2.3 scikit-learn==1.5.2
+
+      - name: Reproduce accepted Homebuilder holdout then evaluate sealed Banks
+        run: |
+          mkdir -p research/results
+          python research/run_banks_generic_holdout_public_runner_20260905.py \
+            --contract research/banks_generic_holdout_public_runner_contract_20260905.json \
+            --output research/results/banks_generic_holdout_public_runner_20260905.json
+
+      - name: Enforce target and authority boundaries
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          p=Path('research/results/banks_generic_holdout_public_runner_20260905.json')
+          d=json.loads(p.read_text())
+          assert d['parity']['passed'] is True
+          assert d['target']['family'] == 'banks'
+          r=d['target']['result']
+          assert r['holdout'] == ['PNC','USB','FITB','HBAN']
+          assert r['benchmark'] == 'KBE'
+          assert r['holdout_target_rows_used_in_training'] is False
+          assert r['development_symbols_loaded'] is False
+          b=d['boundaries']
+          assert b['research_only'] is True
+          assert b['runtime_mutation'] is False
+          assert b['broker_action'] is False
+          assert b['promotion_authority'] is False
+          assert b['live_trading_change'] is False
+          alpha=r['broad_external_alpha']
+          sub=r['broad_benchmark_substitution50']
+          print('=== BANK_EXTERNAL_DECISION ===')
+          print(json.dumps({
+            'alpha_pass': alpha['passes'],
+            'alpha_symbols': alpha['passing_symbols'],
+            'alpha_required': alpha['required'],
+            'aggregate_matched_kbe_alpha_bps': alpha['aggregate_stock_after25_minus_benchmark_mean_bps'],
+            'substitution50_pass': sub['passes'],
+            'substitution50_symbols': sub['passing_symbols'],
+            'aggregate_substitution50_bps': sub['aggregate_benchmark_substitution50_mean_bps'],
+          }, sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+            f.write('## Bank external validation\n\n')
+            f.write('Homebuilder #146 parity: **PASS** before Bank target load.\n\n')
+            f.write(f"Bank matched-KBE stock-selection alpha: **{'PASS' if alpha['passes'] else 'FAIL'}** ({alpha['passing_symbols']}/{alpha['required']})\n\n")
+            f.write(f"Aggregate matched-KBE alpha: **{alpha['aggregate_stock_after25_minus_benchmark_mean_bps']:.2f} bps/state**\n\n")
+            f.write(f"50 bps KBE substitution: **{'PASS' if sub['passes'] else 'FAIL'}** ({sub['passing_symbols']}/{sub['required']})\n\n")
+            f.write('Research-only. No scarcity, allocator, runtime, broker, promotion, or live authority.\n')
+          PY
+
+      - name: Preserve complete terminal result in logs
+        if: always()
+        run: |
+          if [ -f research/results/banks_generic_holdout_public_runner_20260905.json ]; then
+            echo '=== COMPLETE_BANK_PUBLIC_RUNNER_RESULT ==='
+            cat research/results/banks_generic_holdout_public_runner_20260905.json
+          fi
