@@ -1,0 +1,94 @@
+name: Banks Generic Holdout Public Runner 20260905 R2
+
+on:
+  pull_request:
+    paths:
+      - 'research/banks_generic_holdout_public_runner_contract_20260905_r2.json'
+      - 'research/run_banks_generic_holdout_public_runner_20260905.py'
+      - 'research/run_banks_generic_holdout_public_runner_20260905_r2.py'
+      - '.github/workflows/banks-generic-holdout-public-runner-20260905-r2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-banks-r2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.16'
+
+      - name: Validate repaired chronology contract
+        run: |
+          python -m json.tool research/banks_generic_holdout_public_runner_contract_20260905_r2.json >/dev/null
+          python -m py_compile research/run_banks_generic_holdout_public_runner_20260905.py research/run_banks_generic_holdout_public_runner_20260905_r2.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path('research/banks_generic_holdout_public_runner_contract_20260905_r2.json').read_text())
+          assert c['parity_control']['common_cutoff'] == '2026-09-01T13:30:00+00:00'
+          assert c['target']['common_cutoff'] == '2026-09-02T13:30:00+00:00'
+          assert c['generic_prior']['accepted_environment'] == {
+            'python':'3.11.16','numpy':'2.4.6','pandas':'3.0.5','scikit_learn':'1.9.0','scipy':'1.17.1'
+          }
+          assert c['boundaries']['live_trading_change'] is False
+          print('BANK_R2_FROZEN_CHRONOLOGY=PASS')
+          PY
+
+      - name: Install exact accepted #146 numerical environment
+        run: python -m pip install --disable-pip-version-check -q numpy==2.4.6 pandas==3.0.5 scikit-learn==1.9.0 scipy==1.17.1
+
+      - name: Reproduce accepted Homebuilder calendar then consume sealed Banks
+        run: |
+          mkdir -p research/results
+          PYTHONPATH=research python research/run_banks_generic_holdout_public_runner_20260905_r2.py \
+            --contract research/banks_generic_holdout_public_runner_contract_20260905_r2.json \
+            --output research/results/banks_generic_holdout_public_runner_20260905_r2.json
+
+      - name: Enforce downstream boundaries and publish decision
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads(Path('research/results/banks_generic_holdout_public_runner_20260905_r2.json').read_text())
+          assert d['parity']['passed'] is True
+          assert d['parity']['result']['selection_calendar']['common_cutoff'] == '2026-09-01T13:30:00+00:00'
+          r=d['target']['result']
+          assert r['selection_calendar']['common_cutoff'] == '2026-09-02T13:30:00+00:00'
+          assert r['holdout'] == ['PNC','USB','FITB','HBAN']
+          assert r['benchmark'] == 'KBE'
+          assert r['holdout_target_rows_used_in_training'] is False
+          assert r['development_symbols_loaded'] is False
+          for key in ('runtime_mutation','broker_action','promotion_authority','live_trading_change'):
+              assert d['boundaries'][key] is False
+          alpha=r['broad_external_alpha']; sub=r['broad_benchmark_substitution50']
+          decision={
+            'alpha_pass':alpha['passes'],
+            'alpha_symbols':alpha['passing_symbols'],
+            'alpha_required':alpha['required'],
+            'aggregate_matched_kbe_alpha_bps':alpha['aggregate_stock_after25_minus_benchmark_mean_bps'],
+            'substitution50_pass':sub['passes'],
+            'substitution50_symbols':sub['passing_symbols'],
+            'aggregate_substitution50_bps':sub['aggregate_benchmark_substitution50_mean_bps'],
+          }
+          print('=== BANK_EXTERNAL_DECISION ===')
+          print(json.dumps(decision, sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Bank external validation R2\n\n')
+              f.write('Accepted #146 Homebuilder parity on its frozen 2026-09-01 calendar: **PASS**.\n\n')
+              f.write(f"Bank matched-KBE alpha: **{'PASS' if alpha['passes'] else 'FAIL'}** ({alpha['passing_symbols']}/{alpha['required']}); aggregate **{alpha['aggregate_stock_after25_minus_benchmark_mean_bps']:.2f} bps/state**.\n\n")
+              f.write(f"50 bps KBE substitution: **{'PASS' if sub['passes'] else 'FAIL'}** ({sub['passing_symbols']}/{sub['required']}); aggregate **{sub['aggregate_benchmark_substitution50_mean_bps']:.2f} bps/state**.\n\n")
+              f.write('No scarcity, allocator, runtime, broker, promotion, or live authority.\n')
+          PY
+
+      - name: Preserve complete terminal result in logs
+        if: always()
+        run: |
+          if [ -f research/results/banks_generic_holdout_public_runner_20260905_r2.json ]; then
+            echo '=== COMPLETE_BANK_PUBLIC_RUNNER_R2_RESULT ==='
+            cat research/results/banks_generic_holdout_public_runner_20260905_r2.json
+          fi
