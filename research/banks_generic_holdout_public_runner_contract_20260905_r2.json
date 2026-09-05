@@ -1,0 +1,79 @@
+{
+  "schema": "foundry.research.public_runner_industry_holdout_contract.v2",
+  "scientific_authority": {
+    "repo": "XoticHaze/research-foundry",
+    "pr": 270,
+    "development_receipt_commit": "e0007a17c33e360ece8559d9266739b0c0e6f07f",
+    "development_workflow_run": 33954823638,
+    "development_workflow_job": 101276109754,
+    "frozen_generic_engine_head": "b5313f094d7814fc93a076509df39660c1710b34",
+    "accepted_holdout_evaluator_head": "f3711d55a5447e71bc8460717dc13c25c26dc270",
+    "accepted_homebuilder_workflow_run": 33626440109,
+    "accepted_homebuilder_workflow_job": 100235179917
+  },
+  "source_semantics": {
+    "provider": "Yahoo chart adjusted close over the frozen evaluator HTTPS endpoint",
+    "benchmark_loaded_after_selection_calendar": true,
+    "why_cutoffs_are_pinned": "The original Homebuilder workflow ran before the 2026-09-02 session existed in its source response and therefore froze common_cutoff 2026-09-01T13:30:00Z. The Bank development screen froze 2026-09-02T13:30:00Z. Replays must preserve each decision calendar rather than let later source availability move global fold boundaries."
+  },
+  "generic_prior": {
+    "training_universe": ["CAT", "JPM", "UNH", "XOM", "COST", "MSFT"],
+    "features": ["mom5", "mom20", "mom60", "mom100", "mom20_z252", "mom20_accel5", "vol20", "vol20_z252", "distance_high60", "rs_qqq20", "rs_qqq60", "qqq_mom20", "qqq_mom100"],
+    "model": "StandardScaler + Ridge(alpha=10)",
+    "entry_rule": "predicted fixed20 net value > 0",
+    "delay_sessions": 1,
+    "hold_sessions": 20,
+    "cost_bps": 25.0,
+    "folds": 6,
+    "evaluation_folds": [2, 3, 4, 5, 6],
+    "purge_sessions": 22,
+    "minimum_train_index": 756,
+    "ticker_identity": false,
+    "holdout_target_rows_used_in_training": false,
+    "accepted_environment": {
+      "python": "3.11.16",
+      "numpy": "2.4.6",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0",
+      "scipy": "1.17.1"
+    }
+  },
+  "parity_control": {
+    "family": "homebuilders",
+    "holdout": ["CCS", "MHO", "HOV", "BZH"],
+    "benchmark": "ITB",
+    "common_cutoff": "2026-09-01T13:30:00+00:00",
+    "accepted_result": {
+      "external_alpha_passing_symbols": 3,
+      "external_alpha_passes": true,
+      "aggregate_matched_benchmark_alpha_bps_rounded2": 41.11,
+      "substitution50_passing_symbols": 1,
+      "substitution50_passes": false,
+      "aggregate_substitution50_bps_rounded2": 16.11,
+      "symbol_alpha_pass": {"CCS": true, "MHO": false, "HOV": true, "BZH": true},
+      "symbol_substitution50_pass": {"CCS": false, "MHO": false, "HOV": false, "BZH": true}
+    },
+    "rule": "Bank target evaluation is forbidden unless the accepted #146 Homebuilder decision and rounded aggregate economics reproduce first on the accepted cutoff."
+  },
+  "target": {
+    "family": "banks",
+    "development_result": "6/8 development symbols passed the frozen generic matched-KBE gate",
+    "holdout": ["PNC", "USB", "FITB", "HBAN"],
+    "benchmark": "KBE",
+    "common_cutoff": "2026-09-02T13:30:00+00:00",
+    "broad_external_alpha_gate": "at least 3/4 holdouts pass symbol alpha and aggregate matched-KBE alpha is positive",
+    "broad_substitution50_gate": "at least 3/4 holdouts pass and aggregate substitution50 is positive"
+  },
+  "boundaries": {
+    "research_only": true,
+    "threshold_search": false,
+    "hyperparameter_search": false,
+    "within_industry_scarcity_authority": false,
+    "cross_industry_funding_authority": false,
+    "passive_substitution_authority_from_alpha_only": false,
+    "runtime_mutation": false,
+    "broker_action": false,
+    "promotion_authority": false,
+    "live_trading_change": false
+  }
+}
