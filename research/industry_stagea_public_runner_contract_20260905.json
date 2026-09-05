@@ -1,0 +1,63 @@
+{
+  "schema": "foundry.research.public_runner_industry_stagea_contract.v1",
+  "scientific_authority": {
+    "repo": "XoticHaze/research-foundry",
+    "program_issue": 113,
+    "batch2_pr": 271,
+    "frozen_generic_engine_head": "b5313f094d7814fc93a076509df39660c1710b34",
+    "accepted_stagea_workflow_run": 33625677805,
+    "accepted_stagea_workflow_job": 100232730315
+  },
+  "generic_prior": {
+    "training_universe": ["CAT", "JPM", "UNH", "XOM", "COST", "MSFT"],
+    "features": ["mom5", "mom20", "mom60", "mom100", "mom20_z252", "mom20_accel5", "vol20", "vol20_z252", "distance_high60", "rs_qqq20", "rs_qqq60", "qqq_mom20", "qqq_mom100"],
+    "model": "StandardScaler + Ridge(alpha=10)",
+    "entry_rule": "predicted fixed20 net value > 0",
+    "primary_subset": "positive-value states outside each test symbol's frozen prior-history top30 momentum rule",
+    "delay_sessions": 1,
+    "hold_sessions": 20,
+    "cost_bps": 25.0,
+    "tail": 0.30,
+    "folds": 6,
+    "evaluation_folds": [2, 3, 4, 5, 6],
+    "purge_sessions": 22,
+    "minimum_train_index": 756,
+    "family_gate_passing_symbols": 5,
+    "ticker_identity": false,
+    "test_symbol_target_rows_used_in_training": false,
+    "environment": {"python": "3.11.16", "numpy": "2.4.6", "pandas": "3.0.5", "scikit_learn": "1.9.0", "scipy": "1.17.1"}
+  },
+  "parity_control": {
+    "common_cutoff": "2026-09-01T13:30:00+00:00",
+    "families": {
+      "energy_ep": {"development_universe": ["COP", "EOG", "OXY", "FANG", "DVN", "EQT", "APA", "SM"], "primary_industry_etf": "IEO"},
+      "aerospace_defense": {"development_universe": ["RTX", "BA", "LMT", "NOC", "GD", "LHX", "HII", "TDG"], "primary_industry_etf": "ITA"},
+      "homebuilders": {"development_universe": ["DHI", "LEN", "PHM", "NVR", "TOL", "MTH", "KBH", "LGIH"], "primary_industry_etf": "ITB"}
+    },
+    "accepted_family_summary": {
+      "energy_ep": {"passing_symbols": 1, "aggregate_primary_states": 9088, "aggregate_stock_net25_mean_bps": 171.16637351666296, "aggregate_stock_after25_minus_sector_etf_mean_bps": -32.0757294281959, "aggregate_sector_substitution50_mean_bps": -57.07572942819589},
+      "aerospace_defense": {"passing_symbols": 1, "aggregate_primary_states": 9007, "aggregate_stock_net25_mean_bps": 150.13043386628263, "aggregate_stock_after25_minus_sector_etf_mean_bps": -36.615476603366545, "aggregate_sector_substitution50_mean_bps": -61.61547660336655},
+      "homebuilders": {"passing_symbols": 5, "aggregate_primary_states": 9304, "aggregate_stock_net25_mean_bps": 154.14275461628256, "aggregate_stock_after25_minus_sector_etf_mean_bps": 14.50618339592338, "aggregate_sector_substitution50_mean_bps": -10.493816604076619}
+    },
+    "rule": "No target-family symbol may be loaded unless all three accepted family summaries reproduce to passing-symbol/state-count identity and aggregate economics within 1e-8."
+  },
+  "target": {
+    "name": "industry_opportunity_discovery_batch2_20260905",
+    "common_cutoff": "2026-09-02T13:30:00+00:00",
+    "families": {
+      "oil_services": {"development_universe": ["SLB", "HAL", "BKR", "NOV", "FTI", "CHX", "HP", "LBRT"], "external_holdout_universe": ["NBR", "PTEN", "OII", "WHD"], "primary_industry_etf": "OIH"},
+      "medical_devices": {"development_universe": ["ISRG", "ABT", "MDT", "SYK", "BSX", "EW", "BDX", "RMD"], "external_holdout_universe": ["DXCM", "PODD", "ALGN", "MASI"], "primary_industry_etf": "IHI"},
+      "biotech": {"development_universe": ["REGN", "VRTX", "GILD", "BIIB", "ALNY", "INCY", "BMRN", "UTHR"], "external_holdout_universe": ["NBIX", "EXEL", "SRPT", "IONS"], "primary_industry_etf": "XBI"},
+      "chemicals": {"development_universe": ["LIN", "APD", "SHW", "ECL", "DD", "DOW", "PPG", "FMC"], "external_holdout_universe": ["ALB", "CE", "EMN", "ASH"], "primary_industry_etf": "XLB"}
+    },
+    "holdout_rule": "All external holdout histories remain unloaded in Stage A. A separately executed validation consumer may load only the frozen holdouts of a family that independently clears 5/8 development symbols."
+  },
+  "role_separation": {
+    "absolute_opportunity": "screened by this Stage-A consumer",
+    "industry_relative_alpha": "reported separately in the same frozen development gate",
+    "within_industry_scarcity": "not authorized",
+    "passive_substitution": "not authorized",
+    "cross_industry_funding": "not authorized"
+  },
+  "boundaries": {"research_only": true, "threshold_search": false, "hyperparameter_search": false, "external_holdouts_loaded": false, "runtime_mutation": false, "broker_action": false, "promotion_authority": false, "live_trading_change": false}
+}
