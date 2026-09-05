@@ -1,0 +1,36 @@
+name: Industry Stage-A Parity Diagnostic 20260905
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/industry-stagea-parity-diagnostic-20260905.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.16'
+      - name: Install exact accepted environment
+        run: python -m pip install --disable-pip-version-check -q numpy==2.4.6 pandas==3.0.5 scikit-learn==1.9.0 scipy==1.17.1
+      - name: Print actual versus accepted Stage-A parity state
+        run: |
+          PYTHONPATH=research python - <<'PY'
+          import json
+          from pathlib import Path
+          import run_industry_stagea_public_runner_20260905 as r
+          c=json.loads(Path('research/industry_stagea_public_runner_contract_20260905.json').read_text())
+          actual=r._evaluate_matrix(c['parity_control']['families'], c['parity_control']['common_cutoff'])
+          expected=c['parity_control']['accepted_family_summary']
+          print('PARITY_CALENDAR', json.dumps(actual['selection_calendar'], sort_keys=True))
+          for family in expected:
+              print('PARITY_ACTUAL', family, json.dumps(actual['family_summary'][family], sort_keys=True))
+              print('PARITY_EXPECTED', family, json.dumps(expected[family], sort_keys=True))
+          PY
