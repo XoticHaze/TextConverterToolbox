@@ -1,0 +1,83 @@
+name: Industry Stage-A Public Runner 20260905
+
+on:
+  pull_request:
+    paths:
+      - 'research/industry_stagea_public_runner_contract_20260905.json'
+      - 'research/run_industry_stagea_public_runner_20260905.py'
+      - '.github/workflows/industry-stagea-public-runner-20260905.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stagea:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.16'
+
+      - name: Validate frozen contract and runner
+        run: |
+          python -m json.tool research/industry_stagea_public_runner_contract_20260905.json >/dev/null
+          python -m py_compile research/run_industry_stagea_public_runner_20260905.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          c=json.loads(Path('research/industry_stagea_public_runner_contract_20260905.json').read_text())
+          assert c['scientific_authority']['repo']=='XoticHaze/research-foundry'
+          assert c['scientific_authority']['batch2_pr']==271
+          assert c['parity_control']['common_cutoff']=='2026-09-01T13:30:00+00:00'
+          assert c['target']['common_cutoff']=='2026-09-02T13:30:00+00:00'
+          assert c['generic_prior']['environment']=={'python':'3.11.16','numpy':'2.4.6','pandas':'3.0.5','scikit_learn':'1.9.0','scipy':'1.17.1'}
+          assert c['boundaries']['external_holdouts_loaded'] is False
+          assert c['boundaries']['live_trading_change'] is False
+          print('INDUSTRY_STAGEA_PUBLIC_CONTRACT=PASS')
+          PY
+
+      - name: Install exact accepted Stage-A numerical environment
+        run: python -m pip install --disable-pip-version-check -q numpy==2.4.6 pandas==3.0.5 scikit-learn==1.9.0 scipy==1.17.1
+
+      - name: Reproduce accepted #142 matrix then execute Batch 2
+        run: |
+          mkdir -p research/results
+          python research/run_industry_stagea_public_runner_20260905.py \
+            --contract research/industry_stagea_public_runner_contract_20260905.json \
+            --output research/results/industry_stagea_batch2_public_runner_20260905.json
+
+      - name: Enforce target boundaries and publish family decisions
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads(Path('research/results/industry_stagea_batch2_public_runner_20260905.json').read_text())
+          assert d['parity']['passed'] is True
+          assert d['parity']['result']['selection_calendar']['common_cutoff']=='2026-09-01T13:30:00+00:00'
+          target=d['target']['result']
+          assert target['selection_calendar']['common_cutoff']=='2026-09-02T13:30:00+00:00'
+          assert target['external_holdouts_loaded'] is False
+          for key in ('runtime_mutation','broker_action','promotion_authority','live_trading_change'):
+              assert d['boundaries'][key] is False
+          print('=== BATCH2_STAGEA_DECISIONS ===')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Stage-A Batch 2\n\n')
+              f.write('Accepted #142 E&P/A&D/Homebuilder parity: **PASS** before Batch 2 target load.\n\n')
+              f.write('| Family | Gate | Passing | Absolute net bps/state | Matched ETF excess bps/state |\n|---|---:|---:|---:|---:|\n')
+              for family,row in target['family_summary'].items():
+                  rec={'family':family,'pass':row['development_family_gate_pass'],'passing':row['passing_symbols'],'required':row['required_passing_symbols'],'absolute_bps':row['aggregate_stock_net25_mean_bps'],'matched_excess_bps':row['aggregate_stock_after25_minus_sector_etf_mean_bps'],'benchmark':row['benchmark']}
+                  print(json.dumps(rec,sort_keys=True))
+                  f.write(f"| {family} | {'PASS' if row['development_family_gate_pass'] else 'FAIL'} | {row['passing_symbols']}/{row['required_passing_symbols']} | {row['aggregate_stock_net25_mean_bps']:.2f} | {row['aggregate_stock_after25_minus_sector_etf_mean_bps']:.2f} |\n")
+              f.write('\nExternal holdouts remained sealed. No scarcity, passive substitution, allocator, runtime, broker, promotion, or live authority.\n')
+          PY
+
+      - name: Preserve complete terminal result in logs
+        if: always()
+        run: |
+          if [ -f research/results/industry_stagea_batch2_public_runner_20260905.json ]; then
+            echo '=== COMPLETE_STAGEA_BATCH2_RESULT ==='
+            cat research/results/industry_stagea_batch2_public_runner_20260905.json
+          fi
