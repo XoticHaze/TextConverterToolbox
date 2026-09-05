@@ -1,0 +1,72 @@
+{
+  "schema": "foundry.research.public_runner_industry_holdout_contract.v1",
+  "scientific_authority": {
+    "repo": "XoticHaze/research-foundry",
+    "pr": 270,
+    "development_receipt_commit": "e0007a17c33e360ece8559d9266739b0c0e6f07f",
+    "development_workflow_run": 33954823638,
+    "development_workflow_job": 101276109754,
+    "frozen_generic_engine_head": "b5313f094d7814fc93a076509df39660c1710b34",
+    "accepted_holdout_evaluator_head": "f3711d55a5447e71bc8460717dc13c25c26dc270"
+  },
+  "source_semantics": {
+    "start": "2014-01-01",
+    "end": "2026-09-03",
+    "provider": "Yahoo chart adjusted close over fixed HTTPS endpoint, matching the frozen evaluator lineage",
+    "benchmark_loaded_after_selection_calendar": true
+  },
+  "generic_prior": {
+    "training_universe": ["CAT", "JPM", "UNH", "XOM", "COST", "MSFT"],
+    "features": ["mom5", "mom20", "mom60", "mom100", "mom20_z252", "mom20_accel5", "vol20", "vol20_z252", "distance_high60", "rs_qqq20", "rs_qqq60", "qqq_mom20", "qqq_mom100"],
+    "model": "StandardScaler + Ridge(alpha=10)",
+    "entry_rule": "predicted fixed20 net value > 0",
+    "primary_subset": "selected states outside each holdout symbol's prior-history top30 20-session momentum rule",
+    "delay_sessions": 1,
+    "hold_sessions": 20,
+    "cost_bps": 25.0,
+    "folds": 6,
+    "evaluation_folds": [2, 3, 4, 5, 6],
+    "purge_sessions": 22,
+    "minimum_train_index": 756,
+    "ticker_identity": false,
+    "holdout_target_rows_used_in_training": false
+  },
+  "parity_control": {
+    "family": "homebuilders",
+    "holdout": ["CCS", "MHO", "HOV", "BZH"],
+    "benchmark": "ITB",
+    "accepted_result": {
+      "external_alpha_passing_symbols": 3,
+      "external_alpha_passes": true,
+      "aggregate_matched_benchmark_alpha_bps_rounded2": 41.11,
+      "substitution50_passing_symbols": 1,
+      "substitution50_passes": false,
+      "aggregate_substitution50_bps_rounded2": 16.11,
+      "symbol_alpha_pass": {"CCS": true, "MHO": false, "HOV": true, "BZH": true},
+      "symbol_substitution50_pass": {"CCS": false, "MHO": false, "HOV": false, "BZH": true}
+    },
+    "rule": "Bank target evaluation is forbidden unless the public runner reproduces the accepted #146 Homebuilder decision and rounded aggregate economics first."
+  },
+  "target": {
+    "family": "banks",
+    "development_result": "6/8 development symbols passed the frozen generic matched-KBE gate",
+    "holdout": ["PNC", "USB", "FITB", "HBAN"],
+    "benchmark": "KBE",
+    "symbol_alpha_gate": "at least 20 primary states; positive stock net after25; positive stock-after25-minus-KBE; >=3/5 positive stock folds; >=3/5 positive KBE-alpha folds",
+    "broad_external_alpha_gate": "at least 3/4 holdouts pass symbol alpha and aggregate matched-KBE alpha is positive",
+    "symbol_substitution50_gate": "positive stock-minus-KBE-minus50 and >=3/5 positive substitution folds",
+    "broad_substitution50_gate": "at least 3/4 holdouts pass and aggregate substitution50 is positive"
+  },
+  "boundaries": {
+    "research_only": true,
+    "threshold_search": false,
+    "hyperparameter_search": false,
+    "within_industry_scarcity_authority": false,
+    "cross_industry_funding_authority": false,
+    "passive_substitution_authority_from_alpha_only": false,
+    "runtime_mutation": false,
+    "broker_action": false,
+    "promotion_authority": false,
+    "live_trading_change": false
+  }
+}
