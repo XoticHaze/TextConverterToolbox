@@ -15,6 +15,33 @@ from research.mnq_short_opportunity_oos import ShortOOSSpec, challenger_factorie
 from research.mnq_short_opportunity_targets import assert_short_feature_fence
 
 
+def normalize_short_feature_source_clock(work: pd.DataFrame, feature_columns: list[str]) -> pd.DataFrame:
+    """Preserve original short-label resolution time after causal warmup filtering.
+
+    Targets are materialized on the original bar positions before feature NaNs
+    are removed. A leading warmup prefix may be dropped only if resolution rows
+    are rebased by exactly that prefix length. Dropping an interior row would
+    change the frozen event clock and must fail closed, never be compressed.
+    """
+    if "target_resolution_row" not in work.columns:
+        raise ValueError("MNQ_SHORT_TARGET_RESOLUTION_REQUIRED")
+    missing = sorted(set(feature_columns) - set(work.columns))
+    if missing:
+        raise ValueError(f"MNQ_SHORT_CAUSAL_FEATURES_MISSING: {missing}")
+    valid = work[feature_columns].notna().all(axis=1).to_numpy(dtype=bool)
+    accepted = np.flatnonzero(valid)
+    if not len(accepted):
+        raise ValueError("MNQ_SHORT_NO_CAUSAL_FEATURE_ROWS")
+    first = int(accepted[0])
+    if not valid[first:].all():
+        raise ValueError("MNQ_SHORT_INTERIOR_CAUSAL_GAP")
+    retained = work.iloc[first:].copy()
+    retained["target_resolution_row"] = pd.to_numeric(
+        retained["target_resolution_row"], errors="raise"
+    ) - first
+    return retained.reset_index(drop=True)
+
+
 def _eligible_prefix_receipts(frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Return original-evaluator eligible row count/max-resolution for every decision row."""
     resolution = pd.to_numeric(frame["target_resolution_row"], errors="coerce").to_numpy(float)
