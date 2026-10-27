@@ -12,7 +12,7 @@ import pandas as pd
 from research.expanded_regime_ablation import BASE_FEATURES, EXPANDED_FEATURES, REGIME_FEATURES, _add_features
 from research.mnq_external_transfer_validation import load_deep, deep_roll_schedule, stitch_deep, deep_bars
 from research.mnq_short_opportunity_oos import ShortOOSSpec
-from research.mnq_short_opportunity_oos_batched import evaluate_short_challengers_batched
+from research.mnq_short_opportunity_oos_batched import evaluate_short_challengers_batched, normalize_short_feature_source_clock
 from research.mnq_short_opportunity_targets import ShortOpportunitySpec, materialize_short_opportunity_targets
 
 
@@ -60,7 +60,11 @@ def main() -> int:
     targets = materialize_short_opportunity_targets(frame, ShortOpportunitySpec(horizon_bars=args.horizon))
     work = frame.join(targets)
     cols = ["timestamp", *features, "short_label", "short_forward_points", "target_resolution_row"]
-    work = work[cols].replace([np.inf, -np.inf], np.nan).dropna(subset=features).reset_index(drop=True)
+    # Targets carry original absolute resolution rows. Rebase only a leading
+    # feature warmup prefix; fail closed if any interior bar would be compressed.
+    work = normalize_short_feature_source_clock(
+        work[cols].replace([np.inf, -np.inf], np.nan), features
+    )
 
     # Exact same frozen OOS fit contract as the original evaluator. The batched
     # implementation changes only how eligibility bookkeeping and inference are
