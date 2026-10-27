@@ -39,6 +39,24 @@ class HoldExitOOSSpec:
             raise ValueError("refit_interval_rows must be >= 1")
 
 
+def assert_contiguous_causal_rows(valid: pd.Series) -> None:
+    """Do not compress interior source rows after labels were horizon-shifted.
+
+    The runner materializes targets on the original bar index. Dropping an
+    interior feature-invalid row would make a later i+decision/horizon index
+    refer to a different bar than the already-frozen target at i.
+    A leading feature warmup prefix may be removed without changing offsets.
+    """
+    if not isinstance(valid, pd.Series) or valid.dtype != bool:
+        raise ValueError("MNQ_HOLD_EXIT_INVALID_CAUSAL_MASK")
+    mask = valid.to_numpy(dtype=bool)
+    accepted = np.flatnonzero(mask)
+    if not len(accepted):
+        raise ValueError("MNQ_HOLD_EXIT_NO_CAUSAL_ROWS")
+    if not mask[int(accepted[0]):].all():
+        raise ValueError("MNQ_HOLD_EXIT_INTERIOR_CAUSAL_GAP")
+
+
 def _fit_ridge_probability(x: np.ndarray, y: np.ndarray, ridge: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     mean = x.mean(axis=0)
     scale = x.std(axis=0)
