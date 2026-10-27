@@ -15,7 +15,7 @@ import pandas as pd
 
 from research.expanded_regime_ablation import BASE_FEATURES, EXPANDED_FEATURES, REGIME_FEATURES, _add_features
 from research.mnq_external_transfer_validation import load_deep, deep_roll_schedule, stitch_deep, deep_bars
-from research.mnq_long_hold_exit_oos import HoldExitOOSSpec, chronological_long_hold_exit_panel, summarize_hold_exit_panel
+from research.mnq_long_hold_exit_oos import HoldExitOOSSpec, assert_contiguous_causal_rows, chronological_long_hold_exit_panel, summarize_hold_exit_panel
 from research.mnq_long_hold_exit_targets import LongHoldExitSpec, materialize_long_hold_exit_targets
 
 
@@ -92,6 +92,9 @@ def main() -> int:
     target_spec = LongHoldExitSpec(horizon_bars=args.horizon, decision_bars=args.decision, cost_points=1.0)
     targets = materialize_long_hold_exit_targets(frame, target_spec)
     valid = frame[features + ["close", "atr_points"]].replace([np.inf, -np.inf], np.nan).notna().all(axis=1)
+    # Targets were materialized on the original bar index. Interior row removal
+    # would silently shift decision/horizon bars and invalidate causal labels.
+    assert_contiguous_causal_rows(valid)
     frame = frame.loc[valid].reset_index(drop=True)
     targets = targets.loc[valid].reset_index(drop=True)
 

@@ -31,9 +31,9 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
-          python -m unittest -v \
-            research.test_mnq_long_hold_exit_targets \
-            research.test_mnq_long_hold_exit_oos
+          python -m pytest -q \
+            research/test_mnq_long_hold_exit_targets.py \
+            research/test_mnq_long_hold_exit_oos.py
       - name: Checkout exact deep MNQ source
         shell: bash
         run: |
