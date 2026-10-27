@@ -4,6 +4,7 @@ import pytest
 
 from research.mnq_long_hold_exit_oos import (
     HoldExitOOSSpec,
+    assert_contiguous_causal_rows,
     chronological_long_hold_exit_panel,
     summarize_hold_exit_panel,
 )
@@ -91,3 +92,35 @@ def test_future_target_columns_remain_forbidden_as_features():
     frame["hold_incremental_points"] = targets["hold_incremental_points"]
     with pytest.raises(ValueError, match="future/evaluation"):
         chronological_long_hold_exit_panel(frame, targets, ["momentum", "hold_incremental_points"], target_spec, HoldExitOOSSpec(min_train_rows=3))
+
+def test_causal_warmup_prefix_filter_preserves_target_horizon_offsets():
+    frame = _frame(40)
+    spec = LongHoldExitSpec(horizon_bars=6, decision_bars=2)
+    targets = materialize_long_hold_exit_targets(frame, spec)
+    valid = pd.Series([False] * 4 + [True] * 36)
+    assert_contiguous_causal_rows(valid)
+    clean_frame = frame.loc[valid].reset_index(drop=True)
+    clean_targets = targets.loc[valid].reset_index(drop=True)
+    assert clean_targets.loc[0, "decision_price"] == pytest.approx(clean_frame.loc[2, "close"])
+    assert clean_targets.loc[0, "horizon_price"] == pytest.approx(clean_frame.loc[6, "close"])
+
+
+def test_interior_invalid_feature_row_cannot_shift_frozen_target_clock():
+    frame = _frame(40)
+    spec = LongHoldExitSpec(horizon_bars=6, decision_bars=2)
+    targets = materialize_long_hold_exit_targets(frame, spec)
+    valid = pd.Series([False] * 4 + [True] * 36)
+    valid.iloc[12] = False  # t+2 decision bar missing inside otherwise valid source.
+    compressed = frame.loc[valid].reset_index(drop=True)
+    original_entry = 10
+    compressed_entry = int(valid.iloc[:original_entry].sum())
+    assert targets.loc[original_entry, "decision_price"] != pytest.approx(
+        compressed.loc[compressed_entry + spec.decision_bars, "close"]
+    )
+    with pytest.raises(ValueError, match="MNQ_HOLD_EXIT_INTERIOR_CAUSAL_GAP"):
+        assert_contiguous_causal_rows(valid)
+
+
+def test_no_causal_feature_rows_fails_closed():
+    with pytest.raises(ValueError, match="MNQ_HOLD_EXIT_NO_CAUSAL_ROWS"):
+        assert_contiguous_causal_rows(pd.Series([False] * 8))
