@@ -45,6 +45,39 @@ def economic_matrix(pred: pd.DataFrame) -> list[dict[str, object]]:
     return panels
 
 
+def align_short_target_clock(
+    frame: pd.DataFrame, targets: pd.DataFrame, features: list[str]
+) -> pd.DataFrame:
+    """Preserve original target resolution clocks across leading-only feature warmup.
+
+    Future labels are materialized on original bars. A compressed decision index
+    must compare against a resolution index rebased by exactly the removed prefix.
+    Interior missing features cannot be compressed without changing the horizon.
+    """
+    if not isinstance(frame.index, pd.RangeIndex) or frame.index.start != 0 or frame.index.step != 1:
+        raise ValueError("short source requires original zero-based contiguous bar index")
+    if not frame.index.equals(targets.index):
+        raise ValueError("short target index differs from original bar index")
+    cols = ["timestamp", *features, "short_label", "short_forward_points", "target_resolution_row"]
+    work = frame.join(targets)[cols]
+    resolutions = pd.to_numeric(work["target_resolution_row"], errors="raise").dropna().to_numpy(float)
+    if not np.isfinite(resolutions).all() or not np.equal(resolutions, np.floor(resolutions)).all():
+        raise ValueError("short target resolution clock must be finite integer rows")
+    work = work.replace([np.inf, -np.inf], np.nan)
+    valid = work[features].notna().all(axis=1).to_numpy(bool)
+    if not valid.any():
+        raise ValueError("short source has no valid decision features")
+    prefix = int(np.flatnonzero(valid)[0])
+    if not valid[prefix:].all():
+        raise ValueError("short source has interior feature gaps; refusing bar-clock compression")
+    aligned = work.iloc[prefix:].copy().reset_index(drop=True)
+    aligned["target_resolution_row"] = (
+        work["target_resolution_row"].iloc[prefix:].reset_index(drop=True) - prefix
+    )
+    return aligned
+
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--deep-root", type=Path, required=True)
@@ -58,9 +91,7 @@ def main() -> int:
     frame = _add_features(bars)
     features = list(dict.fromkeys(BASE_FEATURES + EXPANDED_FEATURES + REGIME_FEATURES))
     targets = materialize_short_opportunity_targets(frame, ShortOpportunitySpec(horizon_bars=args.horizon))
-    work = frame.join(targets)
-    cols = ["timestamp", *features, "short_label", "short_forward_points", "target_resolution_row"]
-    work = work[cols].replace([np.inf, -np.inf], np.nan).dropna(subset=features).reset_index(drop=True)
+    work = align_short_target_clock(frame, targets, features)
 
     # Exact same frozen OOS fit contract as the original evaluator. The batched
     # implementation changes only how eligibility bookkeeping and inference are
